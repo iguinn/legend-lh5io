@@ -677,3 +677,12 @@ def test_iterator_wo_mode_write(tmp_path, lh5_file):
     )
     assert len(store.read("/data/dummy", dst.as_posix())) == 1
     assert len(it.read(0)) > 0
+
+def test_lh5_iterator_view_as(lgnd_test_data):
+    it = lh5.LH5Iterator(
+        lgnd_test_data.get_path("lh5/l200-p03-r000-phy-20230312T055349Z-tier_psp.lh5"),
+        "ch1067205/dsp/energies",
+    )
+
+    for obj in it:
+        assert ak.is_valid(obj.view_as("ak"))

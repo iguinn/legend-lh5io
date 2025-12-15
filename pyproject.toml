@@ -6,7 +6,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "legend_lh5"
+name = "legend_lh5io"
 description = "LEGEND LH5 File I/O"
 authors = [
     { name = "The LEGEND Collaboration" },

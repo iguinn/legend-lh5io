@@ -604,3 +604,25 @@ def test_read_compressed_lgnd_waveform_table(lgnd_file, enc_lgnd_file):
     wft = store.read("/geds/raw/waveform", enc_lgnd_file)
     assert isinstance(wft.values, types.ArrayOfEqualSizedArrays)
     assert "compression" not in wft.values.attrs
+
+def test_read_histogram_testdata(lgnd_test_data):
+    file = lgnd_test_data.get_path("lh5/lgdo-histograms.lh5")
+
+    h1 = lh5.read("test_histogram_range", file)
+    assert isinstance(h1, types.Histogram)
+    assert h1.binning[0].is_range
+
+    h2 = lh5.read("test_histogram_variable", file)
+    assert isinstance(h2, types.Histogram)
+    assert not h2.binning[0].is_range
+
+    h3 = lh5.read("test_histogram_range_w_attrs", file)
+    assert isinstance(h3, types.Histogram)
+    assert h3.binning[0].is_range
+    assert h3.binning[0]["binedges"].getattrs() == {"units": "m"}
+
+
+def test_read_histogram_multiple(lgnd_test_data):
+    file = lgnd_test_data.get_path("lh5/lgdo-histograms.lh5")
+    with pytest.raises(lh5.io.exceptions.LH5DecodeError):
+        lh5.read("test_histogram_range", [file, file])
