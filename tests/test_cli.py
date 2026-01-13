@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from lh5 import cli, lh5
+from lh5 import cli, ls
 
 
 def test_lh5ls(lgnd_test_data):
@@ -26,7 +26,7 @@ def test_lh5concat(lgnd_test_data, tmptestdir):
         ["--output", outfile, "--debug", "--overwrite", "--", infile1, infile2]
     )
 
-    assert lh5.ls(outfile) == [
+    assert ls(outfile) == [
         "ch1057600",
         "ch1059201",
         "ch1062405",
