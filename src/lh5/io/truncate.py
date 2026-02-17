@@ -280,7 +280,10 @@ def truncate(
     elif file_type in hit_ordered_types:
         hit_ordered = True
     else:
-        msg = f"Unknown file type {file_type}: impossible to deduce if hit- or evt-ordered. Use any-hit or any-evt as file type if the file type is not one of the standard types."
+        msg = (
+            f"Unknown file type {file_type}: impossible to deduce if hit- or evt-ordered. "
+            "Use any-hit or any-evt as file type if the file type is not one of the standard types."
+        )
         raise RuntimeError(msg)
     msg = "hit-ordered data" if hit_ordered else "evt-ordered data"
     log.info(msg)
