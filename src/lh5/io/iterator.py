@@ -1110,9 +1110,9 @@ class LH5Iterator(Iterator):
               - ``pandas.DataFrame``: pandas dataframe. Treat as mapping from column
                 name to values
 
-            - A string expression. This will call `eval`, with the table columns
+            - A string expression. This will call ``eval``, with the table columns
               provided as local variables formatted as :meth:`awkward.Array`, and
-              access to :module:`awkward` (or `ak`) and :module:`numpy` (or `np`).
+              access to :mod:`awkward` (or ``ak``) and :mod:`numpy` (or ``np``).
               Return a table formatted according to ``library``
 
         fields:
@@ -1220,9 +1220,9 @@ class LH5Iterator(Iterator):
               - ``Mapping[str, ArrayLike]``: mapping from axis name to values
               - :class:`pandas.DataFrame`: treat as mapping from column name to values
 
-            - A string expression. This will call `eval`, with the table columns
+            - A string expression. This will call ``eval``, with the table columns
               provided as local variables formatted as :meth:`awkward.Array`, and
-              access to :module:`awkward` (or `ak`) and :module:`numpy` (or `np`)
+              access to :mod:`awkward` (or ``ak``) and :mod:`numpy` (or ``np``).
 
         keys:
             list of keys fields corresponding to axes. Use if where
