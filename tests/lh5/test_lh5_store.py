@@ -252,9 +252,19 @@ def test_read_vov_fancy_idx(lh5_file):
     lh5_obj = store.read("/data/struct_full/vov3d", lh5_file, idx=[0, 2])
     assert isinstance(lh5_obj, types.VectorOfVectors)
 
-    print(lh5_obj)
     assert lh5_obj == types.VectorOfVectors([[[1, 2], [3, 4, 5]], [[5, 3, 1]]])
     assert len(lh5_obj) == 2
+
+    # Out-of-range indices should be culled (and not raise).
+    lh5_obj = store.read("/data/struct_full/vov3d", lh5_file, idx=[0, 10_000])
+    assert isinstance(lh5_obj, types.VectorOfVectors)
+    assert lh5_obj == types.VectorOfVectors([[[1, 2], [3, 4, 5]]])
+    assert len(lh5_obj) == 1
+
+    # A fully out-of-range idx should yield an empty object.
+    lh5_obj = store.read("/data/struct_full/vov3d", lh5_file, idx=[10_000])
+    assert isinstance(lh5_obj, types.VectorOfVectors)
+    assert len(lh5_obj) == 0
 
 
 def test_read_voev(lh5_file):
