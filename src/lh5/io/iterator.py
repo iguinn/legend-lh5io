@@ -536,7 +536,7 @@ class LH5Iterator(Iterator):
 
             if (
                 self.safe_mode
-                and self._get_ds_cumentries(i_ds) == friend._get_ds_cumentries(i_ds)
+                and self._get_ds_cumentries(i_ds) != friend._get_ds_cumentries(i_ds)
                 and np.any(self.entry_map[:i_ds] != friend.entry_map[:i_ds])
             ):
                 i_diff = np.argmax(self.entry_map[:i_ds] != friend.entry_map[:i_ds])
@@ -638,10 +638,14 @@ class LH5Iterator(Iterator):
             remaining_fields = set()
 
         elif isinstance(mask, Mapping):
+            for k, v in mask.items():
+                new_k = k.replace(".", "/")
+                if new_k != k:
+                    mask[new_k] = v
+                    del mask[k]
+
             self.field_mask = {
-                field.replace(".", "/"): mask[field]
-                for field in self.available_fields
-                if field in mask
+                field: mask[field] for field in self.available_fields if field in mask
             }
             mask = {
                 field: mask[field] for field in mask if field not in self.field_mask
@@ -719,7 +723,9 @@ class LH5Iterator(Iterator):
             # deepcopy required to prevent ownership conflict
             tb_gd = deepcopy(Table(self.group_data[0:1], 1))
             tb_gd.resize(len(self.lh5_buffer))
-            remaining_fields -= set(tb_gd)
+            for f in tb_gd:
+                if f in remaining_fields:
+                    remaining_fields.pop(f)
             self.lh5_buffer.join(tb_gd)
 
         if warn_missing and len(remaining_fields) > 0:
@@ -895,7 +901,10 @@ class LH5Iterator(Iterator):
         def build_field_mask(it):
             field_mask = it.field_mask
             for fr in it.friend:
-                field_mask |= fr.field_mask
+                if isinstance(field_mask, Mapping):
+                    field_mask.update(fr.field_mask)
+                else:
+                    field_mask |= fr.field_mask
             return field_mask
 
         self.reset_field_mask(build_field_mask(self))
@@ -1320,7 +1329,7 @@ class _table_query:
         if self.fields is not None:
             for k, v in self.fields.items():
                 if v is not None:
-                    args[v] = tab[k]
+                    args[v] = tab[k].view_as("ak", with_units=True)
 
         mask = eval(
             self.expr,

@@ -408,7 +408,7 @@ def test_group_data(more_lgnd_files):
         }
         assert all(tb.chan.nda == ec)
 
-    # group_data must be same shape as froup_list
+    # group_data must be same shape as group_list
     with pytest.raises(ValueError):
         lh5_it = LH5Iterator(
             more_lgnd_files[2],
