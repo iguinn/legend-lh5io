@@ -723,9 +723,12 @@ class LH5Iterator(Iterator):
             # deepcopy required to prevent ownership conflict
             tb_gd = deepcopy(Table(self.group_data[0:1], 1))
             tb_gd.resize(len(self.lh5_buffer))
-            for f in tb_gd:
-                if f in remaining_fields:
-                    remaining_fields.pop(f)
+            if isinstance(remaining_fields, dict):
+                for f in tb_gd:
+                    if f in remaining_fields:
+                        del remaining_fields[f]
+            else:
+                remaining_fields -= set(tb_gd)
             self.lh5_buffer.join(tb_gd)
 
         if warn_missing and len(remaining_fields) > 0:
