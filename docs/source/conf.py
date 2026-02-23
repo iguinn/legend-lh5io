@@ -10,7 +10,7 @@ sys.path.append(Path("extensions").resolve().as_posix())
 
 project = "legend-lh5io"
 copyright = "2023, the LEGEND Collaboration"
-version = metadata.version("legend-pydataobj")
+version = metadata.version(project)
 
 extensions = [
     "sphinx.ext.autodoc",
