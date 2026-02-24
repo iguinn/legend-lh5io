@@ -28,6 +28,8 @@ def build_field_mask(field_mask: Mapping[str, bool] | Collection[str]) -> defaul
     # check field_mask and make it a default dict
     if field_mask is None:
         return defaultdict(lambda: True)
+    if isinstance(field_mask, defaultdict):
+        return field_mask
     if isinstance(field_mask, dict):
         default = True
         if len(field_mask) > 0:
@@ -35,8 +37,6 @@ def build_field_mask(field_mask: Mapping[str, bool] | Collection[str]) -> defaul
         return defaultdict(lambda: default, field_mask)
     if isinstance(field_mask, (list, tuple, set)):
         return defaultdict(bool, dict.fromkeys(field_mask, True))
-    if isinstance(field_mask, defaultdict):
-        return field_mask
     msg = "bad field_mask type"
     raise ValueError(msg, type(field_mask).__name__)
 
@@ -57,15 +57,28 @@ def eval_field_mask(
         field = key.strip("/")
         pos = field.find("/")
         if pos < 0:
-            this_field_mask[field] = val
+            if field not in this_field_mask:
+                this_field_mask[field] = val
+            else:
+                this_field_mask[field] |= val
+
+            default_factory = (lambda: True) if val else (lambda: False)
+            if field in sub_field_masks:
+                sub_field_masks[field].default_factory = default_factory
+            else:
+                sub_field_masks[field] = defaultdict(default_factory)
         else:
             sub_field = field[pos + 1 :]
             field = field[:pos]
-            this_field_mask[field] = True
-            sub_mask = sub_field_masks.setdefault(
-                field, defaultdict(field_mask.default_factory)
-            )
-            sub_mask[sub_field] = val
+
+            if field in sub_field_masks:
+                sub_field_masks[field][sub_field] = val
+            else:
+                sub_field_masks[field] = defaultdict(
+                    this_field_mask.default_factory, {sub_field: val}
+                )
+
+            this_field_mask[field] |= val
 
     return [
         (field, sub_field_masks.get(field))
