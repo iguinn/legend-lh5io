@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import awkward as ak
-from lgdo import lh5, read_as
 
-from lh5.io import concat
+import lh5
+from lh5.io import concat, read_as
 from lh5.io.truncate import truncate
 
 
