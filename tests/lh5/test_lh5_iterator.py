@@ -435,6 +435,40 @@ def test_group_data(more_lgnd_files):
         }
         assert all(tb.chan.nda == ec)
 
+    # group_data won't be broadcast if provided after initialization
+    with pytest.raises(ValueError):
+        lh5_it.set_group_data({"chan": [1084803, 1084804, 1121600]})
+
+    # set_group_data, with one set of channels per file.
+    lh5_it.set_group_data({
+        "channel": [[1084803, 1084804, 1121600]]*2,
+        "val": [["abc", "def", "ghi"], ["jkl", "mno", "pqr"]],
+    })
+    exp_val = [
+        ["abc"] * 5,
+        ["abc"] * 5,
+        ["def"] * 5,
+        ["def"] * 5,
+        ["ghi"] * 5,
+        ["ghi"] * 5,
+        ["jkl"] * 5,
+        ["jkl"] * 5,
+        ["mno"] * 5,
+        ["mno"] * 5,
+        ["pqr"] * 5,
+        ["pqr"] * 5,
+    ]
+    for tb, ec, ev in zip(lh5_it, exp_chan, exp_val, strict=False):
+        assert set(tb.keys()) == {
+            "is_valid_0vbb",
+            "timestamp",
+            "zacEmax_ctc_cal",
+            "channel", # note: changed field from "chan" to "channel"
+            "val",
+        }
+        assert all(tb.channel.nda == ec)
+        assert all(tb.val.nda == ev)
+
     # group_data provided using awkward array as array of records
     lh5_it = LH5Iterator(
         more_lgnd_files[2],
@@ -492,7 +526,7 @@ def test_group_data(more_lgnd_files):
 
     lh5_it = LH5Iterator(
         more_lgnd_files[2],
-        ["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"],
+        [["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"]]*2,
         field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
         buffer_len=5,
         group_data={
