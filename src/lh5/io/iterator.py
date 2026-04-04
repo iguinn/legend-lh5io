@@ -1364,18 +1364,22 @@ class _table_query:
 
     def __call__(self, tab, _):
         "Evaluate selection and return selected elements"
-        args = {f: a.view_as("ak", with_units=True) for f, a in tab.items()}
+        args = {f: a.view_as("ak", with_units=False) for f, a in tab.items()}
         if self.fields is not None:
             for k, v in self.fields.items():
                 if v is not None:
-                    args[v] = tab[k].view_as("ak", with_units=True)
+                    args[v] = tab[k].view_as("ak", with_units=False)
 
-        mask = eval(
-            self.expr,
-            {"np": np, "numpy": np, "ak": ak, "awkward": ak},
-            args,
-        )
-        ret = tab[mask]
+        if self.expr:
+            mask = eval(
+                self.expr,
+                {"np": np, "numpy": np, "ak": ak, "awkward": ak},
+                args,
+            )
+            ret = tab[mask]
+        else:
+            ret = tab
+
         if self.fields is not None:
             ret = Table(
                 {(k if f is None else f): ret[k] for k, f in self.fields.items()}
@@ -1383,7 +1387,7 @@ class _table_query:
 
         if self.library is None:
             return ret
-        return ret.view_as(self.library, with_units=True)
+        return ret.view_as(self.library, with_units=False)
 
 
 class _hist_filler:
