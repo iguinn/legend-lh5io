@@ -11,6 +11,7 @@ from lgdo.types import (
     VectorOfVectors,
 )
 
+from ....utils import numba_defaults_kwargs as nb_kwargs
 from ... import datatype as dtypeutils
 from ...exceptions import LH5DecodeError
 from .array import (
@@ -197,7 +198,7 @@ def _h5_read_vector_of_vectors(
     )
 
 
-@numba.njit
+@numba.jit(**nb_kwargs(nopython=True))
 def _h5_get_2D_fd_idx_and_cumulen(fstarts, this_cumulen_nda):
     # helper to get 2D ranges for flattened data and update cumulen in place
     fd_idx = np.empty((len(fstarts), 2), dtype=fstarts.dtype)

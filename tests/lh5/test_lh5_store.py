@@ -169,11 +169,18 @@ def test_read_array_slice(lh5_file):
 
 def test_read_array_fancy_idx(lh5_file):
     store = lh5.LH5Store()
+    lh5_obj = store.read("/data/struct_full/array", lh5_file, idx=3)
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 1
+    assert lh5_obj == lgdo.Array([4])
+
+    store = lh5.LH5Store()
     lh5_obj = store.read("/data/struct_full/array", lh5_file, idx=[0, 3, 4])
     assert isinstance(lh5_obj, types.Array)
     assert len(lh5_obj) == 3
     assert lh5_obj == lgdo.Array([1, 4, 5])
 
+    # Test reading multiple files
     lh5_obj = store.read(
         "/data/struct_full/array", [lh5_file, lh5_file], idx=[[0, 3, 4], [0, 3, 4]]
     )
@@ -181,11 +188,32 @@ def test_read_array_fancy_idx(lh5_file):
     assert len(lh5_obj) == 6
     assert lh5_obj == lgdo.Array([1, 4, 5, 1, 4, 5])
 
+    lh5_obj = store.read(
+        "/data/struct_full/array", [lh5_file, lh5_file], idx=[0, 3, 4, 5, 8, 9]
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 6
+    assert lh5_obj == lgdo.Array([1, 4, 5, 1, 4, 5])
+
+    store = lh5.LH5Store()
+    lh5_obj = store.read("/data/struct_full/array", [lh5_file, lh5_file], idx=[0, 3, 4])
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 3
+    assert lh5_obj == lgdo.Array([1, 4, 5])
+
     # Test with out of range index
     lh5_obj = store.read("/data/struct_full/array", lh5_file, idx=[0, 3, 4, 100])
     assert isinstance(lh5_obj, types.Array)
     assert len(lh5_obj) == 3
     assert lh5_obj == lgdo.Array([1, 4, 5])
+
+    # Test with out of order index
+    with pytest.raises(ValueError):
+        store.read("/data/struct_full/array", lh5_file, idx=[0, 4, 3])
+
+    # Test with out of order index
+    with pytest.raises(ValueError):
+        store.read("/data/struct_full/array", lh5_file, idx=[[0], [3, 5]])
 
     # Test with boolean mask
     lh5_obj = store.read(
@@ -195,6 +223,15 @@ def test_read_array_fancy_idx(lh5_file):
     assert len(lh5_obj) == 3
     assert lh5_obj == lgdo.Array([1, 4, 5])
 
+    lh5_obj = store.read(
+        "/data/struct_full/array",
+        [lh5_file, lh5_file],
+        idx=np.array([1, 0, 0, 1, 1, 1, 0, 0, 1, 1], "bool"),
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 6
+    assert lh5_obj == lgdo.Array([1, 4, 5, 1, 4, 5])
+
     # Test interaction with start_rows and n_rows
     lh5_obj = store.read(
         "/data/struct_full/array", lh5_file, start_row=1, n_rows=1, idx=[0, 3, 4]
@@ -202,6 +239,84 @@ def test_read_array_fancy_idx(lh5_file):
     assert isinstance(lh5_obj, types.Array)
     assert len(lh5_obj) == 1
     assert lh5_obj == lgdo.Array([4])
+
+    # Test idx with list of ranges
+    lh5_obj = store.read(
+        "/data/struct_full/array", lh5_file, idx=np.array([[0, 1], [3, 5]])
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 3
+    assert lh5_obj == lgdo.Array([1, 4, 5])
+
+    # Test idx with list of ranges and start_rows and n_rows
+    lh5_obj = store.read(
+        "/data/struct_full/array",
+        lh5_file,
+        start_row=1,
+        n_rows=1,
+        idx=np.array([[0, 1], [3, 5]]),
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 1
+    assert lh5_obj == lgdo.Array([4])
+
+    # Test idx with list of ranges and start_rows and n_rows
+    lh5_obj = store.read(
+        "/data/struct_full/array", lh5_file, idx=np.array([[0, 1], [3, 10]])
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 3
+    assert lh5_obj == lgdo.Array([1, 4, 5])
+
+    lh5_obj = store.read(
+        "/data/struct_full/array", lh5_file, idx=np.array([[0, 1], [3, 5], [7, 10]])
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 3
+    assert lh5_obj == lgdo.Array([1, 4, 5])
+
+    lh5_obj = store.read("/data/struct_full/array", lh5_file, idx=np.array([[10, 15]]))
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 0
+
+    # Test idx with list of ranges and multiple files
+    lh5_obj = store.read(
+        "/data/struct_full/array",
+        [lh5_file] * 3,
+        idx=np.array([[0, 3], [4, 7], [11, 13]]),
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 8
+    assert lh5_obj == lgdo.Array([1, 2, 3, 5, 1, 2, 2, 3])
+
+    lh5_obj = store.read("/data/struct_full/array", [lh5_file] * 3, idx=12)
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 1
+    assert lh5_obj == lgdo.Array([3])
+
+    # This should interpret as a 1D array for each file
+    lh5_obj = store.read(
+        "/data/struct_full/array", [lh5_file] * 2, idx=[[0, 3], [0, 3]]
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 4
+    assert lh5_obj == lgdo.Array([1, 4, 1, 4])
+
+    lh5_obj = store.read("/data/struct_full/array", [lh5_file] * 2, idx=[1, None])
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 6
+    assert lh5_obj == lgdo.Array([2, 1, 2, 3, 4, 5])
+
+    # This should interpret as a 2D array across all files
+    lh5_obj = store.read(
+        "/data/struct_full/array", [lh5_file] * 2, idx=np.array([[0, 3], [5, 8]])
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 6
+    assert lh5_obj == lgdo.Array([1, 2, 3, 1, 2, 3])
+
+    with pytest.raises(ValueError):
+        store.read("/data/struct_full/array", [lh5_file] * 2, idx=[[1, 3], 4, 5])
 
 
 def test_read_vov(lh5_file):

@@ -110,8 +110,8 @@ def _h5_read_lgdo(
                 ]  # works even if n_rows > len(idxa)
         elif idx.ndim == 2 and idx.shape[1] == 2:
             # chop off indices < start_row
-            i_first_valid = bisect.bisect_left(idx[:, 0], start_row)
-            if i_first_valid > 0 and start_row[i_first_valid, 1] > start_row:
+            i_first_valid = bisect.bisect_left(idx[:, 1], start_row)
+            if i_first_valid < len(idx) and idx[i_first_valid, 0] < start_row:
                 idx[i_first_valid, 0] = start_row
                 i_first_valid -= 1
             idx = idx[i_first_valid:]
