@@ -8,6 +8,7 @@ import h5py
 import numpy as np
 from lgdo.types import (
     Array,
+    ArrayOfDetectorIDs,
     ArrayOfEncodedEqualSizedArrays,
     ArrayOfEqualSizedArrays,
     FixedSizeArray,
@@ -25,6 +26,7 @@ from ...exceptions import LH5DecodeError
 from . import utils
 from .array import (
     _h5_read_array,
+    _h5_read_array_of_detectorids,
     _h5_read_array_of_equalsized_arrays,
     _h5_read_fixedsize_array,
 )
@@ -45,7 +47,6 @@ def _h5_read_lgdo(
     start_row=0,
     n_rows=sys.maxsize,
     idx=None,
-    use_h5idx=False,
     field_mask=None,
     obj_buf=None,
     obj_buf_start=0,
@@ -82,23 +83,53 @@ def _h5_read_lgdo(
             start_row=start_row,
             n_rows=n_rows,
             idx=idx,
-            use_h5idx=use_h5idx,
             field_mask=field_mask,
             decompress=decompress,
         )
 
     # Below here is all array-like types. So trim idx if needed
     if idx is not None:
-        # check if idx is just an ordered list of the integers if so can ignore
-        if (idx == np.arange(0, len(idx), 1)).all():
-            n_rows = min(n_rows, len(idx))
-            idx = None
-        else:
+        idx = np.asarray(idx)
+        idx_diff = np.diff(idx.flatten())
+
+        if not (idx_diff > 0).all():
+            msg = "index array must be strictly increasing"
+            raise ValueError(msg)
+
+        if len(idx) == 0:
+            pass
+        elif idx.ndim == 1:
+            # check if idx is just an ordered list of the integers if so can ignore
+            if len(idx_diff) > 0 and (idx_diff == 1).all():
+                start_row = max(start_row, idx[0])
+                n_rows = min(n_rows, idx[-1] + 1 - start_row)
+                idx = None
+            else:
+                # chop off indices < start_row
+                i_first_valid = bisect.bisect_left(idx, start_row)
+                idx = idx[
+                    i_first_valid : i_first_valid + n_rows
+                ]  # works even if n_rows > len(idxa)
+        elif idx.ndim == 2 and idx.shape[1] == 2:
             # chop off indices < start_row
-            i_first_valid = bisect.bisect_left(idx, start_row)
-            idxa = idx[i_first_valid:]
-            # don't readout more than n_rows indices
-            idx = idxa[:n_rows]  # works even if n_rows > len(idxa)
+            i_first_valid = bisect.bisect_right(idx[:, 1], start_row)
+            if i_first_valid < len(idx) and idx[i_first_valid, 0] < start_row:
+                idx[i_first_valid, 0] = start_row
+            idx = idx[i_first_valid:]
+
+            # make sure cumulative length of idx doesn't exceed n_rows
+            cls = np.cumsum(idx[:, 1] - idx[:, 0])
+            i_last_valid = bisect.bisect_left(cls, n_rows)
+            if i_last_valid < len(idx):
+                idx[i_last_valid, 1] = idx[i_last_valid, 1] - (
+                    cls[i_last_valid] - n_rows
+                )
+                if idx[i_last_valid, 1] <= idx[i_last_valid, 0]:
+                    i_last_valid -= 1
+            idx = idx[: i_last_valid + 1]
+        else:
+            msg = "index array must be 1D or 2D with shape (n,2)"
+            raise ValueError(msg)
 
     if lgdotype is Table:
         return _h5_read_table(
@@ -108,7 +139,6 @@ def _h5_read_lgdo(
             start_row=start_row,
             n_rows=n_rows,
             idx=idx,
-            use_h5idx=use_h5idx,
             field_mask=field_mask,
             obj_buf=obj_buf,
             obj_buf_start=obj_buf_start,
@@ -123,7 +153,6 @@ def _h5_read_lgdo(
             start_row=start_row,
             n_rows=n_rows,
             idx=idx,
-            use_h5idx=use_h5idx,
             field_mask=field_mask,
             obj_buf=obj_buf,
             obj_buf_start=obj_buf_start,
@@ -138,7 +167,6 @@ def _h5_read_lgdo(
             start_row=start_row,
             n_rows=n_rows,
             idx=idx,
-            use_h5idx=use_h5idx,
             obj_buf=obj_buf,
             obj_buf_start=obj_buf_start,
             decompress=decompress,
@@ -152,7 +180,6 @@ def _h5_read_lgdo(
             start_row=start_row,
             n_rows=n_rows,
             idx=idx,
-            use_h5idx=use_h5idx,
             obj_buf=obj_buf,
             obj_buf_start=obj_buf_start,
             decompress=decompress,
@@ -166,13 +193,24 @@ def _h5_read_lgdo(
             start_row=start_row,
             n_rows=n_rows,
             idx=idx,
-            use_h5idx=use_h5idx,
             obj_buf=obj_buf,
             obj_buf_start=obj_buf_start,
         )
 
     if lgdotype is FixedSizeArray:
         return _h5_read_fixedsize_array(
+            h5o,
+            fname,
+            oname,
+            start_row=start_row,
+            n_rows=n_rows,
+            idx=idx,
+            obj_buf=obj_buf,
+            obj_buf_start=obj_buf_start,
+        )
+
+    if lgdotype is ArrayOfDetectorIDs:
+        return _h5_read_array_of_detectorids(
             h5o,
             fname,
             oname,
@@ -192,7 +230,6 @@ def _h5_read_lgdo(
             start_row=start_row,
             n_rows=n_rows,
             idx=idx,
-            use_h5idx=use_h5idx,
             obj_buf=obj_buf,
             obj_buf_start=obj_buf_start,
         )
@@ -205,7 +242,6 @@ def _h5_read_lgdo(
             start_row=start_row,
             n_rows=n_rows,
             idx=idx,
-            use_h5idx=use_h5idx,
             obj_buf=obj_buf,
             obj_buf_start=obj_buf_start,
         )
@@ -221,7 +257,6 @@ def _h5_read_struct(
     start_row=0,
     n_rows=sys.maxsize,
     idx=None,
-    use_h5idx=False,
     field_mask=None,
     decompress=True,
 ):
@@ -254,7 +289,6 @@ def _h5_read_struct(
             start_row=start_row,
             n_rows=n_rows,
             idx=idx,
-            use_h5idx=use_h5idx,
             field_mask=submask,
             decompress=decompress,
         )
@@ -270,7 +304,6 @@ def _h5_read_table(
     start_row=0,
     n_rows=sys.maxsize,
     idx=None,
-    use_h5idx=False,
     field_mask=None,
     obj_buf=None,
     obj_buf_start=0,
@@ -309,7 +342,6 @@ def _h5_read_table(
             start_row=start_row,
             n_rows=n_rows,
             idx=idx,
-            use_h5idx=use_h5idx,
             obj_buf=fld_buf,
             obj_buf_start=obj_buf_start,
             field_mask=submask,
@@ -374,7 +406,6 @@ def _h5_read_histogram(
     start_row=0,
     n_rows=sys.maxsize,
     idx=None,
-    use_h5idx=False,
     field_mask=None,
     obj_buf=None,
     obj_buf_start=0,
@@ -391,7 +422,6 @@ def _h5_read_histogram(
         start_row=start_row,
         n_rows=n_rows,
         idx=idx,
-        use_h5idx=use_h5idx,
         field_mask=field_mask,
         decompress=decompress,
     )
