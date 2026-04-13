@@ -169,11 +169,18 @@ def test_read_array_slice(lh5_file):
 
 def test_read_array_fancy_idx(lh5_file):
     store = lh5.LH5Store()
+    lh5_obj = store.read("/data/struct_full/array", lh5_file, idx=3)
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 1
+    assert lh5_obj == lgdo.Array([4])
+
+    store = lh5.LH5Store()
     lh5_obj = store.read("/data/struct_full/array", lh5_file, idx=[0, 3, 4])
     assert isinstance(lh5_obj, types.Array)
     assert len(lh5_obj) == 3
     assert lh5_obj == lgdo.Array([1, 4, 5])
 
+    # Test reading multiple files
     lh5_obj = store.read(
         "/data/struct_full/array", [lh5_file, lh5_file], idx=[[0, 3, 4], [0, 3, 4]]
     )
@@ -181,11 +188,32 @@ def test_read_array_fancy_idx(lh5_file):
     assert len(lh5_obj) == 6
     assert lh5_obj == lgdo.Array([1, 4, 5, 1, 4, 5])
 
+    lh5_obj = store.read(
+        "/data/struct_full/array", [lh5_file, lh5_file], idx=[0, 3, 4, 5, 8, 9]
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 6
+    assert lh5_obj == lgdo.Array([1, 4, 5, 1, 4, 5])
+
+    store = lh5.LH5Store()
+    lh5_obj = store.read("/data/struct_full/array", [lh5_file, lh5_file], idx=[0, 3, 4])
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 3
+    assert lh5_obj == lgdo.Array([1, 4, 5])
+
     # Test with out of range index
     lh5_obj = store.read("/data/struct_full/array", lh5_file, idx=[0, 3, 4, 100])
     assert isinstance(lh5_obj, types.Array)
     assert len(lh5_obj) == 3
     assert lh5_obj == lgdo.Array([1, 4, 5])
+
+    # Test with out of order index
+    with pytest.raises(ValueError):
+        store.read("/data/struct_full/array", lh5_file, idx=[0, 4, 3])
+
+    # Test with out of order index
+    with pytest.raises(ValueError):
+        store.read("/data/struct_full/array", lh5_file, idx=[[0], [3, 5]])
 
     # Test with boolean mask
     lh5_obj = store.read(
@@ -194,6 +222,101 @@ def test_read_array_fancy_idx(lh5_file):
     assert isinstance(lh5_obj, types.Array)
     assert len(lh5_obj) == 3
     assert lh5_obj == lgdo.Array([1, 4, 5])
+
+    lh5_obj = store.read(
+        "/data/struct_full/array",
+        [lh5_file, lh5_file],
+        idx=np.array([1, 0, 0, 1, 1, 1, 0, 0, 1, 1], "bool"),
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 6
+    assert lh5_obj == lgdo.Array([1, 4, 5, 1, 4, 5])
+
+    # Test interaction with start_rows and n_rows
+    lh5_obj = store.read(
+        "/data/struct_full/array", lh5_file, start_row=1, n_rows=1, idx=[0, 3, 4]
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 1
+    assert lh5_obj == lgdo.Array([4])
+
+    # Test idx with list of ranges
+    lh5_obj = store.read(
+        "/data/struct_full/array", lh5_file, idx=np.array([[0, 1], [3, 5]])
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 3
+    assert lh5_obj == lgdo.Array([1, 4, 5])
+
+    # Test idx with list of ranges and start_rows and n_rows
+    lh5_obj = store.read(
+        "/data/struct_full/array",
+        lh5_file,
+        start_row=1,
+        n_rows=1,
+        idx=np.array([[0, 1], [3, 5]]),
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 1
+    assert lh5_obj == lgdo.Array([4])
+
+    # Test idx with list of ranges and start_rows and n_rows
+    lh5_obj = store.read(
+        "/data/struct_full/array", lh5_file, idx=np.array([[0, 1], [3, 10]])
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 3
+    assert lh5_obj == lgdo.Array([1, 4, 5])
+
+    lh5_obj = store.read(
+        "/data/struct_full/array", lh5_file, idx=np.array([[0, 1], [3, 5], [7, 10]])
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 3
+    assert lh5_obj == lgdo.Array([1, 4, 5])
+
+    lh5_obj = store.read("/data/struct_full/array", lh5_file, idx=np.array([[10, 15]]))
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 0
+
+    # Test idx with list of ranges and multiple files
+    lh5_obj = store.read(
+        "/data/struct_full/array",
+        [lh5_file] * 3,
+        idx=np.array([[0, 3], [4, 7], [11, 13]]),
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 8
+    assert lh5_obj == lgdo.Array([1, 2, 3, 5, 1, 2, 2, 3])
+
+    lh5_obj = store.read("/data/struct_full/array", [lh5_file] * 3, idx=12)
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 1
+    assert lh5_obj == lgdo.Array([3])
+
+    # This should interpret as a 1D array for each file
+    lh5_obj = store.read(
+        "/data/struct_full/array", [lh5_file] * 2, idx=[[0, 3], [0, 3]]
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 4
+    assert lh5_obj == lgdo.Array([1, 4, 1, 4])
+
+    lh5_obj = store.read("/data/struct_full/array", [lh5_file] * 2, idx=[1, None])
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 6
+    assert lh5_obj == lgdo.Array([2, 1, 2, 3, 4, 5])
+
+    # This should interpret as a 2D array across all files
+    lh5_obj = store.read(
+        "/data/struct_full/array", [lh5_file] * 2, idx=np.array([[0, 3], [5, 8]])
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 6
+    assert lh5_obj == lgdo.Array([1, 2, 3, 1, 2, 3])
+
+    with pytest.raises(ValueError):
+        store.read("/data/struct_full/array", [lh5_file] * 2, idx=[[1, 3], 4, 5])
 
 
 def test_read_vov(lh5_file):
@@ -266,6 +389,13 @@ def test_read_vov_fancy_idx(lh5_file):
     assert isinstance(lh5_obj, types.VectorOfVectors)
     assert len(lh5_obj) == 0
 
+    lh5_obj = store.read(
+        "/data/struct_full/vov", lh5_file, start_row=1, n_rows=1, idx=[0, 2, 3]
+    )
+    assert isinstance(lh5_obj, types.VectorOfVectors)
+    assert lh5_obj == types.VectorOfVectors([[2]], attrs={"myattr": 2})
+    assert len(lh5_obj) == 1
+
 
 def test_read_voev(lh5_file):
     store = lh5.LH5Store()
@@ -327,6 +457,13 @@ def test_read_aoesa_fancy_idx(lh5_file):
     assert isinstance(lh5_obj, types.ArrayOfEqualSizedArrays)
     assert (lh5_obj.nda == np.full((2, 5), fill_value=42)).all()
 
+    store = lh5.LH5Store()
+    lh5_obj = store.read(
+        "/data/struct/aoesa", lh5_file, start_row=1, n_rows=1, idx=[0, 2, 3]
+    )
+    assert isinstance(lh5_obj, types.ArrayOfEqualSizedArrays)
+    assert (lh5_obj.nda == np.full((1, 5), fill_value=42)).all()
+
 
 def test_read_table(lh5_file):
     store = lh5.LH5Store()
@@ -353,6 +490,13 @@ def test_read_table_fancy_idx(lh5_file):
     lh5_obj = store.read("/data/struct/table", lh5_file, idx=[])
     assert isinstance(lh5_obj, types.Table)
     assert len(lh5_obj) == 0
+
+    store = lh5.LH5Store()
+    lh5_obj = store.read(
+        "/data/struct/table", lh5_file, start_row=1, n_rows=1, idx=[0, 2, 3]
+    )
+    assert isinstance(lh5_obj, types.Table)
+    assert len(lh5_obj) == 1
 
 
 def test_read_empty_struct(lh5_file):
@@ -435,7 +579,7 @@ def test_read_wftable_encoded(lh5_file):
     assert np.array_equal(lh5_obj_chain.values[3:], lh5_obj.values)
     assert len(lh5_obj_chain) == 6
 
-    with h5py.File(lh5_file) as h5f:
+    with h5py.File(lh5_file, locking=False) as h5f:
         assert (
             h5f[
                 "/data/struct/wftable_enc/values/encoded_data/flattened_data"
@@ -542,6 +686,17 @@ def test_read_lgnd_array_fancy_idx(lgnd_file):
     assert len(lh5_obj) == 7
     assert (lh5_obj.nda == [13508, 14353, 14525, 14341, 15079, 11675, 13995]).all()
 
+    lh5_obj = store.read(
+        "/geds/raw/baseline",
+        lgnd_file,
+        start_row=5,
+        n_rows=3,
+        idx=[2, 4, 6, 9, 11, 16, 68],
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 3
+    assert (lh5_obj.nda == [14525, 14341, 15079]).all()
+
 
 def test_read_lgnd_vov(lgnd_file):
     store = lh5.LH5Store()
@@ -567,6 +722,18 @@ def test_read_lgnd_vov_fancy_idx(lgnd_file):
     lh5_obj = store.read("/geds/raw/tracelist", [lgnd_file] * 3, idx=[250])
     assert isinstance(lh5_obj, types.VectorOfVectors)
     assert len(lh5_obj) == 1
+
+    lh5_obj = store.read(
+        "/geds/raw/tracelist",
+        lgnd_file,
+        start_row=5,
+        n_rows=3,
+        idx=[2, 4, 6, 9, 11, 16, 68],
+    )
+    assert isinstance(lh5_obj, types.VectorOfVectors)
+    assert len(lh5_obj) == 3
+    assert (lh5_obj.cumulative_length.nda == [1, 2, 3]).all()
+    assert (lh5_obj.flattened_data.nda == [64, 60, 64]).all()
 
 
 def test_read_array_concatenation(lgnd_file):
@@ -634,6 +801,17 @@ def test_read_lgnd_waveform_table_fancy_idx(lgnd_file):
     )
     assert isinstance(lh5_obj, types.WaveformTable)
     assert len(lh5_obj) == 19
+
+    lh5_obj2 = store.read(
+        "/geds/raw/waveform",
+        lgnd_file,
+        start_row=10,
+        n_rows=3,
+        idx=[7, 9, 25, 27, 33, 38, 46, 52, 57, 59, 67, 71, 72, 82, 90, 92, 93, 94, 97],
+    )
+    assert isinstance(lh5_obj2, types.WaveformTable)
+    assert len(lh5_obj2) == 3
+    assert lh5_obj2 == lh5_obj[2:5]
 
 
 def test_read_compressed_lgnd_waveform_table(lgnd_file, enc_lgnd_file):

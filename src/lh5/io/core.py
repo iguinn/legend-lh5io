@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import bisect
 import inspect
+import logging
 import sys
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
@@ -17,13 +18,15 @@ from . import _serializers
 from .exceptions import LH5DecodeError
 from .utils import read_n_rows
 
+log = logging.getLogger(__name__)
+
 
 def read(
     name: str,
     lh5_file: str | Path | h5py.File | Sequence[str | Path | h5py.File],
     start_row: int = 0,
     n_rows: int = sys.maxsize,
-    idx: ArrayLike = None,
+    idx: ArrayLike | Sequence[ArrayLike] = None,
     use_h5idx: bool = False,
     field_mask: Mapping[str, bool] | Sequence[str] | None = None,
     obj_buf: types.LGDO = None,
@@ -32,18 +35,6 @@ def read(
     locking: bool = False,
 ) -> types.LGDO | tuple[types.LGDO, int]:
     """Read LH5 object data from a file.
-
-    Note
-    ----
-    Use the ``idx`` parameter to read out particular rows of the data. The
-    ``use_h5idx`` flag controls whether *only* those rows are read from
-    disk or if the rows are indexed after reading the entire object.
-    Reading individual rows can be orders of magnitude slower than reading
-    the whole object and then indexing the desired rows. The default
-    behavior (``use_h5idx=False``) is to use slightly more memory for a
-    much faster read. See `legend-pydataobj/issues/#29
-    <https://github.com/legend-exp/legend-pydataobj/issues/29>`_ for
-    additional information.
 
     Parameters
     ----------
@@ -64,26 +55,23 @@ def read(
         For NumPy-style "fancying indexing" for the read to select only
         some rows, e.g. after applying some cuts to particular columns.
         Only selection along the first axis is supported, so tuple
-        arguments must be one-tuples.  If `n_rows` is not false, `idx` will
-        be truncated to `n_rows` before reading. To use with a list of
-        files, can pass in a list of `idx`'s (one for each file) or use a
+        arguments must be one-tuples.  A 2D array of shape (N, 2) can be.
+        used to provide a list of ranges. To use with a list of files,
+        can pass in a list/tuple of `idx`'s (one for each file) or use a
         long contiguous list (e.g. built from a previous identical read).
         If used in conjunction with `start_row` and `n_rows`, will be
         sliced to obey those constraints, where `n_rows` is interpreted as
         the (max) number of *selected* values (in `idx`) to be read out.
-        Note that the ``use_h5idx`` parameter controls some behaviour of
-        the read and that the default behavior (``use_h5idx=False``)
-        prioritizes speed over a small memory penalty.
+
+        Note
+        ----
+        If a list of arrays is provided with the same length as number of
+        files, it will be split among the files even if it was intended as
+        a list of ranges. In that case, explicitly provide the list as a
+        numpy array of shape (n, 2). If a list of arrays has a length different
+        from the number of files, attempt to interpret as shape (n, 2) array.
     use_h5idx
-        ``True`` will directly pass the ``idx`` parameter to the underlying
-        :mod:`h5py` call such that only the selected rows are read directly
-        into memory, which conserves memory at the cost of speed. There can
-        be a significant penalty to speed for larger files (1 - 2 orders of
-        magnitude longer time).  ``False`` (default) will read the entire
-        object into memory before performing the indexing. The default is
-        much faster but requires additional memory, though a relatively
-        small amount in the typical use case. It is recommended to leave
-        this parameter as its default.
+        deprecated and has no effect.
     field_mask
         For tables and structs, determines which fields get read out.
         Nested struct elements can be accessed by using ``/`` as a separator
@@ -113,6 +101,9 @@ def read(
     object
         the read-out object
     """
+    if use_h5idx:
+        log.warning("use_h5idx is deprecated and has no effect.")
+
     close_after = False
     if isinstance(lh5_file, h5py.File):
         try:
@@ -136,26 +127,59 @@ def read(
         else:
             obj_buf_start = 0
 
+        if idx is None:
+            pass
+        elif (
+            isinstance(idx, Sequence)
+            and len(idx) == len(lh5_file)
+            and not all(np.isscalar(i) for i in idx)
+        ):
+            # list of idx for each file
+            idx = [np.array(idx_i) if idx_i is not None else None for idx_i in idx]
+        else:
+            # long list of idx to be split among files
+            try:
+                idx = np.array(idx)
+                if idx.ndim == 0:
+                    idx = idx.reshape(1)
+                assert idx.ndim == 1 or (idx.ndim == 2 and idx.shape[1] == 2)
+            except (TypeError, ValueError, AssertionError) as e:
+                msg = "idx must be of shape (), (n,) or (n, 2)"
+                raise ValueError(msg) from e
+
         for i, h5f in enumerate(lh5_file):
-            if (
-                isinstance(idx, (list, tuple))
-                and len(idx) > 0
-                and not np.isscalar(idx[0])
-            ):
+            if isinstance(idx, list):
                 # a list of lists: must be one per file
                 idx_i = idx[i]
             elif idx is not None:
-                # make idx a proper tuple if it's not one already
-                if not (isinstance(idx, tuple) and len(idx) == 1):
-                    idx = (idx,)
-                # idx is a long continuous array
+                # find subset of idx contained in this file
                 n_rows_i = read_n_rows(name, h5f)
-                # find the length of the subset of idx that contains indices
-                # that are less than n_rows_i
-                n_rows_to_read_i = bisect.bisect_left(idx[0], n_rows_i)
-                # now split idx into idx_i and the remainder
-                idx_i = np.array(idx[0])[:n_rows_to_read_i]
-                idx = np.array(idx[0])[n_rows_to_read_i:] - n_rows_i
+                if len(idx) == 0:
+                    # no more idx to read
+                    break
+                if idx.ndim == 1:
+                    # split idx into part for this file and part for remaining
+                    if idx.dtype == np.dtype("?"):
+                        idx_i = idx[:n_rows_i]
+                        idx = idx[n_rows_i:]
+                    else:
+                        n_rows_to_read_i = bisect.bisect_left(idx, n_rows_i)
+                        idx_i = idx[:n_rows_to_read_i]
+                        idx = idx[n_rows_to_read_i:] - n_rows_i
+                elif idx.ndim == 2 and idx.shape[1] == 2:
+                    i_last_valid = bisect.bisect_left(idx[:, 1], n_rows_i)
+                    if i_last_valid >= len(idx):
+                        idx_i = idx
+                        idx = np.array([], dtype=idx.dtype)
+                    elif idx[i_last_valid, 0] >= n_rows_i:
+                        idx_i = idx[:i_last_valid]
+                        idx = idx[i_last_valid:] - n_rows_i
+                    else:
+                        # if n_rows_i is in the middle of a range, split the range
+                        idx_i = idx[: i_last_valid + 1]
+                        idx = idx[i_last_valid:] - n_rows_i
+                        idx_i[-1, 1] = n_rows_i
+                        idx[0, 0] = 0
             else:
                 idx_i = None
 
@@ -165,24 +189,30 @@ def read(
             obj_buf = read(
                 name,
                 h5f,
-                start_row if i == 0 else 0,
-                n_rows_i,
-                idx_i,
-                use_h5idx,
-                field_mask,
-                obj_buf,
-                obj_buf_start_i,
-                decompress,
+                start_row=start_row if i == 0 else 0,
+                n_rows=n_rows_i,
+                idx=idx_i,
+                field_mask=field_mask,
+                obj_buf=obj_buf,
+                obj_buf_start=obj_buf_start_i,
+                decompress=decompress,
             )
 
             if obj_buf is None or (len(obj_buf) - obj_buf_start) >= n_rows:
                 return obj_buf
         return obj_buf
 
-    if isinstance(idx, (list, tuple)) and len(idx) > 0 and not np.isscalar(idx[0]):
-        idx = idx[0]
-    if isinstance(idx, np.ndarray) and idx.dtype == np.dtype("?"):
-        idx = np.where(idx)[0]
+    if idx is not None:
+        try:
+            idx = np.array(idx)
+            if idx.ndim == 0:
+                idx = idx.reshape(1)
+            if idx.dtype == np.dtype("?"):
+                idx = np.where(idx)[0]
+            assert idx.ndim == 1 or (idx.ndim == 2 and idx.shape[1] == 2)
+        except (TypeError, ValueError, AssertionError) as e:
+            msg = "idx must be of shape (), (n,) or (n, 2)"
+            raise ValueError(msg) from e
 
     try:
         obj, n_rows_read = _serializers._h5_read_lgdo(
@@ -192,7 +222,6 @@ def read(
             start_row=start_row,
             n_rows=n_rows,
             idx=idx,
-            use_h5idx=use_h5idx,
             field_mask=field_mask,
             obj_buf=obj_buf,
             obj_buf_start=obj_buf_start,
