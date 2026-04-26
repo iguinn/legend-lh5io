@@ -3,10 +3,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Collection, Iterator, Mapping
 from concurrent.futures import Executor, ProcessPoolExecutor
+from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
-from itertools import chain, product
+from itertools import chain
+from multiprocessing import Manager, Queue
+from queue import Empty
+from threading import Event, Thread
 from typing import Any
 
 import awkward as ak
@@ -16,9 +20,12 @@ from hist import Hist, axis
 from lgdo.types import LGDOCollection, Table
 from lgdo.units import default_units_registry as ureg
 from numpy.typing import NDArray
+from rich import console, progress
 
 from .store import LH5Store
 from .utils import expand_path
+
+log = logging.getLogger(__name__)
 
 
 class LH5Iterator(Iterator):
@@ -191,15 +198,11 @@ class LH5Iterator(Iterator):
                 elif isinstance(f, Collection) and all(
                     isinstance(name, str) for name in f
                 ):
-                    self.lh5_files.append(
-                        [
-                            path
-                            for name in f
-                            for path in expand_path(
-                                name, list=True, base_path=base_path
-                            )
-                        ]
-                    )
+                    for name in f:
+                        flist = expand_path(name, list=True, base_path=base_path)
+                        if len(flist) == 0:
+                            log.warning(f"{name} did not match any files")
+                        self.lh5_files.append(flist)
                 else:
                     msg = "lh5_files must be a collection of strings with up to two levels of nesting"
 
@@ -237,7 +240,10 @@ class LH5Iterator(Iterator):
 
         # build map of cumulative number of datasets for file/group pairs and number of files/groups
         self._fggroups = np.array(
-            [(len(f)*len(g), len(g)) for f, g in zip(self.lh5_files, self.groups)]
+            [
+                (len(f) * len(g), len(g))
+                for f, g in zip(self.lh5_files, self.groups, strict=True)
+            ]
         )
         self._fggroups[:, 0] = np.cumsum(self._fggroups[:, 0])
         self.group_data = None
@@ -387,14 +393,19 @@ class LH5Iterator(Iterator):
         gp_data = self.group_data[i_set]
         offset = self._fggroups[i_set - 1, 0] if i_set > 0 else 0
         ngroups = self._fggroups[i_set, 1]
-        gp_data = { f: gp_data[f] if self._broadcast_group_data[f] else gp_data[f][(i_ds - offset) % ngroups] for f in gp_data.fields }
+        gp_data = {
+            f: gp_data[f]
+            if self._broadcast_group_data[f]
+            else gp_data[f][(i_ds - offset) % ngroups]
+            for f in gp_data.fields
+        }
         return ak.Record(gp_data)
 
     def _get_ds_cumlen(self, i_ds: int) -> int:
         """Helper to get cumulative dataset length of file/groups"""
         if i_ds < 0:
             return 0
-        elif i_ds >= self.n_datasets:
+        if i_ds >= self.n_datasets:
             return self._get_ds_cumlen(self.n_datasets - 1)
         fcl = self.ds_map[i_ds]
 
@@ -431,7 +442,7 @@ class LH5Iterator(Iterator):
                     n += len(elist)
                     # check that file entries fall inside of file
                     if len(elist) > 0 and elist[-1] >= fcl:
-                        logging.warning(f"Found entries out of range for file {i}")
+                        log.warning(f"Found entries out of range for file {i}")
                         n += np.searchsorted(elist, fcl, "right") - len(elist)
                 self.entry_map[i] = n
         return n
@@ -617,7 +628,9 @@ class LH5Iterator(Iterator):
 
         Note: unlike in the constructor, the group_data will not be broadcast over all files!
         """
-        old_fields = set(self.group_data.fields) if self.group_data is not None else set()
+        old_fields = (
+            set(self.group_data.fields) if self.group_data is not None else set()
+        )
 
         if group_data is not None:
             self.group_data = ak.Array(group_data)
@@ -632,8 +645,7 @@ class LH5Iterator(Iterator):
             self._broadcast_group_data = {}
             for f in self.group_data.fields:
                 if self.group_data[f].ndim > 1:
-                    if ak.any(ak.num(self.group_data[f]) != self._fggroups[:,1]):
-                        print(self.groups[0], self.group_data[f], self._fggroups[:,1], ak.num(self.group_data[f]))
+                    if ak.any(ak.num(self.group_data[f]) != self._fggroups[:, 1]):
                         msg = f"group_data field '{f}' has incompatible length with groups"
                         raise ValueError(msg)
                     self._broadcast_group_data[f] = False
@@ -772,7 +784,7 @@ class LH5Iterator(Iterator):
             self.lh5_buffer.join(tb_gd)
 
         if warn_missing and len(remaining_fields) > 0:
-            logging.warning(f"Fields {remaining_fields} in field mask were not found")
+            log.warning(f"Fields {remaining_fields} in field mask were not found")
 
     @property
     def current_local_entries(self) -> NDArray[int]:
@@ -1006,6 +1018,8 @@ class LH5Iterator(Iterator):
         terminate: Callable[LH5Iterator] = None,
         processes: int = None,
         executor: Executor = None,
+        progress_queue: Queue = None,
+        job_id: int | Collection[int] = 0,
     ) -> Iterator[Any]:
         """Map function over iterator blocks.
 
@@ -1088,6 +1102,17 @@ class LH5Iterator(Iterator):
             :class:`concurrent.futures.Executor` object for managing parallelism.
             If ``None``, create a :class:`concurrent.futures.`ProcessPoolExecutor`
             with number of processes equal to ``processes``.
+        progress_queue:
+            :class:`multiprocessing.Queue` object to which progress information will be
+            communicated back go main process. Return mapping with keys:
+                - task_id: the job_id passed to this function
+                - total: total number of datasets to be processed
+                - completed: number of datasets that have been processed
+                - entries: number of entries that have been processed
+                - status: "Initializing", "Processing", "Terminating" or "Finished"
+        job_id:
+            index of first process (see ``task_id`` above; subsequent processes will
+            increment by 1) or list of ``task_ids`` for each process
         """
 
         # if no aggregate is provided, append results to a list
@@ -1099,7 +1124,16 @@ class LH5Iterator(Iterator):
             if isinstance(executor, Executor):
                 processes = executor._max_workers
             else:
-                return _map_helper(fun, aggregate, init, begin, terminate, self)
+                return _map_helper(
+                    fun,
+                    aggregate,
+                    init,
+                    begin,
+                    terminate,
+                    self,
+                    job_id,
+                    progress_queue=progress_queue,
+                )
 
         if executor is None:
             executor = ProcessPoolExecutor(processes)
@@ -1107,7 +1141,19 @@ class LH5Iterator(Iterator):
         it_pool = self._generate_workers(processes)
 
         result = executor.map(
-            partial(_map_helper, fun, aggregate, init, begin, terminate), it_pool
+            partial(
+                _map_helper,
+                fun,
+                aggregate,
+                init,
+                begin,
+                terminate,
+                progress_queue=progress_queue,
+            ),
+            it_pool,
+            job_id
+            if isinstance(job_id, Collection)
+            else range(job_id, job_id + processes),
         )
 
         # If no aggregator was given, chain iterators
@@ -1123,6 +1169,7 @@ class LH5Iterator(Iterator):
         processes: Executor | int = None,
         executor: Executor = None,
         library: str = None,
+        progress: progress.Progress | console.Console | bool = True,
     ):
         """
         Query the data files in the iterator
@@ -1179,6 +1226,9 @@ class LH5Iterator(Iterator):
         library:
             library to convert the columns to when using a string expression for ``where``.
             See :meth:`Table.eval`.
+        progress:
+            if ``True`` draw progress bar; can also provide an existing rich ``Progress``
+            or ``Console`` object
         """
         if where is None:
             where = _identity
@@ -1187,29 +1237,57 @@ class LH5Iterator(Iterator):
             where = _table_query(where, library, fields)
 
         test = where(self.lh5_buffer, self)
-        if isinstance(test, LGDOCollection):
-            it = self.map(
-                where, processes=processes, executor=executor, aggregate=Table.append
-            )
-            if isinstance(it, LGDOCollection):
-                return it
-            ret = next(it)
-            for res in it:
-                ret.append(res)
-            return ret
-        if isinstance(test, pd.DataFrame):
-            return pd.concat(
-                list(self.map(where, processes=processes, executor=executor)),
-                ignore_index=True,
-            )
-        if isinstance(test, np.ndarray):
-            return np.concatenate(
-                list(self.map(where, processes=processes, executor=executor))
-            )
-        if isinstance(test, ak.Array):
-            return ak.concatenate(
-                list(self.map(where, processes=processes, executor=executor))
-            )
+
+        with MapProgress(processes, progress) if progress else nullcontext() as prog:
+            pq = prog.queue if prog else None
+            if isinstance(test, LGDOCollection):
+                it = self.map(
+                    where,
+                    processes=processes,
+                    executor=executor,
+                    aggregate=Table.append,
+                    progress_queue=pq,
+                )
+                if isinstance(it, LGDOCollection):
+                    return it
+                ret = deepcopy(next(it))
+                for res in it:
+                    ret.append(res)
+                return ret
+            if isinstance(test, pd.DataFrame):
+                return pd.concat(
+                    list(
+                        self.map(
+                            where,
+                            processes=processes,
+                            executor=executor,
+                            progress_queue=pq,
+                        )
+                    ),
+                    ignore_index=True,
+                )
+            if isinstance(test, np.ndarray):
+                return np.concatenate(
+                    list(
+                        self.map(
+                            where,
+                            processes=processes,
+                            executor=executor,
+                            progress_queue=pq,
+                        )
+                    )
+                )
+            if isinstance(test, ak.Array):
+                return ak.concatenate(
+                    list(
+                        self.map(
+                            where,
+                            processes=processes,
+                            executor=executor,
+                            progress_queue=pq,
+                        )
+                    )
+                )
 
         msg = f"Cannot call query with return type {test.__class__}. "
         "Allowed return types: LGDOCollection, np.array, pd.DataFrame, ak.Array"
@@ -1222,6 +1300,7 @@ class LH5Iterator(Iterator):
         keys: Collection[str] | str = None,
         processes: Executor | int = None,
         executor: Executor = None,
+        progress: progress.Progress | console.Console | bool = True,
         **hist_kwargs,
     ) -> Hist:
         """
@@ -1282,6 +1361,9 @@ class LH5Iterator(Iterator):
             :class:`concurrent.futures.Executor` object for managing parallelism.
             If ``None``, create a :class:`concurrent.futures.`ProcessPoolExecutor`
             with number of processes equal to ``processes``.
+        progress:
+            if ``True`` draw progress bar; can also provide an existing rich ``Progress``
+            or ``Console`` object
         hist_kwargs:
             additional keyword arguments for constructing :class:`hist.Hist`.
         """
@@ -1300,15 +1382,17 @@ class LH5Iterator(Iterator):
         elif isinstance(where, str):
             where = _table_query(where, "ak", None)
 
-        h = self.map(
-            where,
-            processes=processes,
-            executor=executor,
-            aggregate=_hist_filler(keys),
-            init=h,
-        )
-        if isinstance(h, Iterator):
-            h = sum(h)
+        with MapProgress(processes, progress) if progress else nullcontext() as prog:
+            h = self.map(
+                where,
+                processes=processes,
+                executor=executor,
+                aggregate=_hist_filler(keys),
+                init=h,
+                progress_queue=prog.queue if prog else None,
+            )
+            if isinstance(h, Iterator):
+                h = sum(h)
 
         if isinstance(ax, Hist):
             ax += h
@@ -1326,13 +1410,50 @@ def _append_copy(list, val):
     list.append(deepcopy(val))
 
 
-def _map_helper(fun, aggregator, init, begin, terminate, it):
+def _map_helper(
+    fun,
+    aggregator,
+    init,
+    begin,
+    terminate,
+    it,
+    i_job: int,
+    *,
+    progress_queue: Queue = None,
+):
     "Helper for executing int, begin and terminate functions when calling map"
+    if progress_queue is not None:
+        progress_queue.put(
+            {
+                "task_id": i_job,
+                "total": it.n_datasets,
+                "completed": 0.0,
+                "entries": 0,
+                "status": "Initializing",
+                "finished": False,
+            }
+        )
+
     if begin:
         begin(it)
 
     aggregate = init
     for tab in it:
+        if progress_queue is not None:
+            i_ds = np.searchsorted(it.entry_map, it.current_i_entry, "right")
+            progress_queue.put(
+                {
+                    "task_id": i_job,
+                    "total": it.n_datasets,
+                    "completed": i_ds
+                    + (it.current_i_entry - it._get_ds_cumentries(i_ds - 1))
+                    / (it._get_ds_cumentries(i_ds) - it._get_ds_cumentries(i_ds - 1)),
+                    "entries": it.current_i_entry,
+                    "status": "Processing",
+                    "finished": False,
+                }
+            )
+
         result = fun(tab, it)
 
         if aggregate is None:
@@ -1343,8 +1464,32 @@ def _map_helper(fun, aggregator, init, begin, terminate, it):
             if res is not None:
                 aggregate = res
 
+    if progress_queue is not None:
+        progress_queue.put(
+            {
+                "task_id": i_job,
+                "total": it.n_datasets,
+                "completed": it.n_datasets,
+                "entries": it._get_ds_cumentries(it.n_datasets),
+                "status": "Terminating",
+                "finished": False,
+            }
+        )
+
     if terminate:
         terminate(it)
+
+    if progress_queue is not None:
+        progress_queue.put(
+            {
+                "task_id": i_job,
+                "total": it.n_datasets,
+                "completed": it.n_datasets,
+                "entries": it._get_ds_cumentries(it.n_datasets),
+                "status": "Finished",
+                "finished": True,
+            }
+        )
 
     return aggregate
 
@@ -1422,3 +1567,92 @@ class _hist_filler:
         else:
             msg = "data returned by where is not compatible with hist. Must be a 1d or 2d numpy array, a list of arrays, or a mapping from str to array"
             raise ValueError(msg)
+
+
+class MapProgress(Thread):
+    """Helper for tracking progress of threads in map
+
+    Basic Usage::
+
+        with MapProgress(task_list) as prog:
+            iter.map(..., progress_queue = prog.queue)
+    """
+
+    def __init__(
+        self,
+        tasks: list | int,
+        prog: progress.Progress | console.Console = None,
+        update_period: float = 0.1,
+    ):
+        """
+        tasks:
+            list of descriptions to prepend to progress bars. Can also provide the number of
+            tasks, in which case description will be set to "#i"
+        progress:
+            rich Progress or Console object to add bars to. Use to customize the bar.
+        update_period:
+            frequency in s to update progress bars.
+        """
+        if isinstance(prog, progress.Progress):
+            self.progress = prog
+        else:
+            self.progress = progress.Progress(
+                progress.TextColumn("{task.description}: {task.fields[status]}"),
+                progress.BarColumn(),
+                progress.TaskProgressColumn(),
+                progress.TextColumn(
+                    "{task.completed:.1f}/{task.total} ds, {task.fields[entries]} rows"
+                ),
+                progress.TimeElapsedColumn(),
+                progress.TimeRemainingColumn(compact=True),
+                console=prog if isinstance(prog, console.Console) else None,
+                auto_refresh=False,
+            )
+
+        if isinstance(tasks, int):
+            tasks = [f"#{i}" for i in range(tasks)]
+        elif isinstance(tasks, str):
+            tasks = [tasks]
+        elif tasks is None:
+            tasks = [":"]
+        for desc in tasks:
+            self.progress.add_task(
+                desc, total=None, completed=0.0, finished=False, status="", entries=0
+            )
+        self.update_period = update_period
+
+        self.manager = Manager()
+        self.queue = self.manager.Queue()
+        self.done = Event()
+        super().__init__(daemon=True)
+
+    def run(self):
+        self.progress.start()
+
+        # update every update_period s
+        while not self.done.wait(self.update_period):
+            while True:
+                try:
+                    progress_info = self.queue.get(block=False)
+                except Empty:
+                    break
+                self.progress.update(**progress_info)
+            self.progress.refresh()
+
+        # one final update to make sure we get all the way to 100%
+        while True:
+            try:
+                progress_info = self.queue.get(block=False)
+            except Empty:
+                break
+            self.progress.update(**progress_info)
+        self.progress.refresh()
+        self.progress.stop()
+
+    def __enter__(self) -> MapProgress:
+        self.start()
+        return self
+
+    def __exit__(self, *_) -> None:
+        self.done.set()
+        self.join()

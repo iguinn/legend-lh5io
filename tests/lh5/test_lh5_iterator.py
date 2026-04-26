@@ -9,8 +9,9 @@ import pandas as pd
 import pytest
 from hist import axis
 from lgdo import Array, Table, WaveformTable
+from rich import console, progress
 
-from lh5 import LH5Iterator, read
+from lh5 import LH5Iterator, MapProgress, read
 
 
 @pytest.fixture(scope="module")
@@ -440,10 +441,12 @@ def test_group_data(more_lgnd_files):
         lh5_it.set_group_data({"chan": [1084803, 1084804, 1121600]})
 
     # set_group_data, with one set of channels per file.
-    lh5_it.set_group_data({
-        "channel": [[1084803, 1084804, 1121600]]*2,
-        "val": [["abc", "def", "ghi"], ["jkl", "mno", "pqr"]],
-    })
+    lh5_it.set_group_data(
+        {
+            "channel": [[1084803, 1084804, 1121600]] * 2,
+            "val": [["abc", "def", "ghi"], ["jkl", "mno", "pqr"]],
+        }
+    )
     exp_val = [
         ["abc"] * 5,
         ["abc"] * 5,
@@ -463,7 +466,7 @@ def test_group_data(more_lgnd_files):
             "is_valid_0vbb",
             "timestamp",
             "zacEmax_ctc_cal",
-            "channel", # note: changed field from "chan" to "channel"
+            "channel",  # note: changed field from "chan" to "channel"
             "val",
         }
         assert all(tb.channel.nda == ec)
@@ -526,7 +529,7 @@ def test_group_data(more_lgnd_files):
 
     lh5_it = LH5Iterator(
         more_lgnd_files[2],
-        [["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"]]*2,
+        [["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"]] * 2,
         field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
         buffer_len=5,
         group_data={
@@ -666,6 +669,13 @@ def test_query(more_lgnd_files):
             tb_exp = deepcopy(tb)
         else:
             tb_exp.append(tb)
+
+    # test with no selection applied
+    tb_all = lh5_it.query("")
+    assert tb_all == tb_exp
+    tb_all = lh5_it.query("", processes=3)
+    assert tb_all == tb_exp
+
     tb_exp = query_lgdo(tb_exp, None)
 
     # filter returning Table
@@ -810,6 +820,42 @@ def test_hist(more_lgnd_files):
         processes=2,
     )
     assert np.all(np.array(h_pd_str_mp) == h_exp)
+
+
+def test_progress_bar(more_lgnd_files):
+    lh5_it = LH5Iterator(
+        more_lgnd_files[2],
+        ["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"],
+        field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
+        buffer_len=5,
+    )
+
+    # Test single-threaded progress bar
+    cons = console.Console(force_terminal=True, record=True)
+    lh5_it.query("", progress=cons)
+    res = cons.export_text().split("\n")[-2]
+    assert "Finished" in res
+    assert "6.0/6 ds, 60 rows" in res
+
+    # Test multi-threaded progress bars
+    lh5_it.query("", processes=3, progress=cons)
+    res = cons.export_text().split("\n")[-4:-1]
+    for i, line in enumerate(res):
+        assert f"#{i}: Finished" in line
+        assert "2.0/2 ds, 20 rows" in line
+
+    # Test with custom formatting
+    prog = progress.Progress(
+        progress.TextColumn("{task.description}: testing"),
+        console=cons,
+        auto_refresh=False,
+    )
+    descriptions = ["test1", "Test2", "test c"]
+    with MapProgress(descriptions, prog) as pr:
+        list(lh5_it.map(return_tb, progress_queue=pr.queue))
+    res = cons.export_text().split("\n")[-4:-1]
+    for desc, line in zip(descriptions, res, strict=False):
+        assert f"{desc}: testing" in line
 
 
 def test_iterator_wo_mode_write(tmp_path, lh5_file):
