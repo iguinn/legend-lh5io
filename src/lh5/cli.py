@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 
+import lgdo
 import lgdo.logging as lgdogging  # eheheh
 
 from . import __version__, io
@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 
 def lh5ls(args=None):
-    """:func:`.lh5.show` command line interface."""
+    """:func:`.io.show` command line interface."""
     parser = argparse.ArgumentParser(
         prog="lh5ls", description="Inspect LEGEND HDF5 (LH5) file contents"
     )
@@ -24,8 +24,9 @@ def lh5ls(args=None):
     # global options
     parser.add_argument(
         "--version",
-        action="store_true",
-        help="""Print legend-pydataobj version and exit""",
+        action="version",
+        help="""Print legend-lh5io version and exit""",
+        version=f"{__version__} (legend-pydataobj {lgdo.__version__})",
     )
     parser.add_argument(
         "--verbose",
@@ -63,15 +64,11 @@ def lh5ls(args=None):
     args = parser.parse_args(args)
 
     if args.verbose:
-        lgdogging.setup(logging.DEBUG, logging.getLogger("lgdo"))
+        lgdogging.setup(logging.DEBUG, logging.getLogger("lh5"))
     elif args.debug:
         lgdogging.setup(logging.DEBUG, logging.root)
     else:
         lgdogging.setup()
-
-    if args.version:
-        print(__version__)  # noqa: T201
-        sys.exit()
 
     io.show(
         args.lh5_file,
@@ -110,8 +107,9 @@ Exclude the /data/table1/col1 Table column:
     # global options
     parser.add_argument(
         "--version",
-        action="store_true",
-        help="""Print legend-pydataobj version and exit""",
+        action="version",
+        help="""Print legend-lh5io version and exit""",
+        version=f"{__version__} (legend-pydataobj {lgdo.__version__})",
     )
     parser.add_argument(
         "--verbose",
@@ -166,15 +164,11 @@ Exclude the /data/table1/col1 Table column:
     args = parser.parse_args(args)
 
     if args.verbose:
-        lgdogging.setup(logging.INFO, logging.getLogger("lgdo"))
+        lgdogging.setup(logging.INFO, logging.getLogger("lh5"))
     elif args.debug:
         lgdogging.setup(logging.DEBUG, logging.root)
     else:
         lgdogging.setup()
-
-    if args.version:
-        print(__version__)  # noqa: T201
-        sys.exit()
 
     lh5concat(
         lh5_files=args.lh5_file,
@@ -213,8 +207,9 @@ Include only specific paths:
     # global options
     parser.add_argument(
         "--version",
-        action="store_true",
-        help="""Print legend-pydataobj version and exit""",
+        action="version",
+        help="""Print legend-lh5io version and exit""",
+        version=f"{__version__} (legend-pydataobj {lgdo.__version__})",
     )
     parser.add_argument(
         "--verbose",
@@ -281,15 +276,11 @@ Include only specific paths:
     args = parser.parse_args(args)
 
     if args.verbose:
-        lgdogging.setup(logging.INFO, logging.getLogger("lgdo"))
+        lgdogging.setup(logging.INFO, logging.getLogger("lh5"))
     elif args.debug:
         lgdogging.setup(logging.DEBUG, logging.root)
     else:
         lgdogging.setup()
-
-    if args.version:
-        print(__version__)  # noqa: T201
-        sys.exit()
 
     # parse length_or_slice: could be an integer or a slice like "10:50"
     length_or_slice: int | slice

@@ -567,13 +567,14 @@ class LH5Iterator(Iterator):
         if isinstance(buffer_len, str):
             buffer_len = ureg.Quantity(buffer_len)
         if isinstance(buffer_len, ureg.Quantity):
-            f = self.get_file(0)
-            g = self.get_group(0)
-            buffer_len = int(
-                buffer_len
-                / (self.lh5_st.read_size_in_bytes(g, f) * ureg.B)
-                * self.lh5_st.read_n_rows(g, f)
-            )
+            for i_ds in range(self.n_datasets):
+                f = self.get_file(i_ds)
+                g = self.get_group(i_ds)
+                n_row = max(self.lh5_st.read_n_rows(g, f), 1)
+                size_in_bytes = self.lh5_st.read_size_in_bytes(g, f) / n_row
+                if size_in_bytes > 0:
+                    buffer_len = int(buffer_len / (size_in_bytes * ureg.B))
+                    break
 
         self._buffer_len = buffer_len
         for fr in self.friend:

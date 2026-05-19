@@ -40,17 +40,17 @@ dependencies = [
     "pandas>=1.4.4",
     "parse",
     "rich",
-    "legend-pydataobj>=2.0.0a3",
+    "legend-pydataobj>=2.0.1",
 ]
 dynamic = [
     "version",
 ]
 
 [project.urls]
-Homepage = "https://github.com/legend-exp/legend-lh5"
-"Bug Tracker" = "https://github.com/legend-exp/legend-lh5/issues"
-Discussions = "https://github.com/legend-exp/legend-lh5/discussions"
-Changelog = "https://github.com/legend-exp/legend-lh5/releases"
+Homepage = "https://github.com/legend-exp/legend-lh5io"
+"Bug Tracker" = "https://github.com/legend-exp/legend-lh5io/issues"
+Discussions = "https://github.com/legend-exp/legend-lh5io/discussions"
+Changelog = "https://github.com/legend-exp/legend-lh5io/releases"
 
 [tool.setuptools_scm]
 write_to = "src/lh5/_version.py"
