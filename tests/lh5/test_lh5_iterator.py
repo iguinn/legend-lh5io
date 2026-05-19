@@ -602,7 +602,7 @@ def test_group_data_none(more_lgnd_files):
         ["pqr"] * 5,
         ["pqr"] * 5,
     ]
-    for tb, ec, ev in zip(lh5_it, exp_chan, exp_val, strict=False):
+    for tb, ev in zip(lh5_it, exp_val, strict=False):
         assert set(tb.keys()) == {
             "is_valid_0vbb",
             "timestamp",
@@ -630,7 +630,7 @@ def test_group_data_none(more_lgnd_files):
         [4.0] * 5,
         [4.0] * 5,
     ]
-    for tb, ec, ev in zip(lh5_it, exp_chan, exp_val, strict=False):
+    for tb, ev in zip(lh5_it, exp_val, strict=False):
         assert set(tb.keys()) == {
             "is_valid_0vbb",
             "timestamp",
