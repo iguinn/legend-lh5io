@@ -548,6 +548,96 @@ def test_group_data(more_lgnd_files):
         assert all(tb.chan.nda == ec)
         assert all(tb.type.nda == et)
 
+def test_group_data_none(more_lgnd_files):
+    # test provision of metadata about groups
+    lh5_it = LH5Iterator(
+        more_lgnd_files[2],
+        ["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"],
+        field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
+        buffer_len=5,
+        group_data={"chan": [None, 1084804, 1121600]},
+    )
+
+    int_nan = np.iinfo(np.dtype(int)).min
+    exp_chan = [
+        [int_nan] * 5,
+        [int_nan] * 5,
+        [1084804] * 5,
+        [1084804] * 5,
+        [1121600] * 5,
+        [1121600] * 5,
+        [int_nan] * 5,
+        [int_nan] * 5,
+        [1084804] * 5,
+        [1084804] * 5,
+        [1121600] * 5,
+        [1121600] * 5,
+    ]
+    for tb, ec in zip(lh5_it, exp_chan, strict=False):
+        assert set(tb.keys()) == {
+            "is_valid_0vbb",
+            "timestamp",
+            "zacEmax_ctc_cal",
+            "chan",
+        }
+        assert all(tb.chan.nda == ec)
+
+    lh5_it.set_group_data(
+        {
+            "val": [["abc", "def", "ghi"], ["jkl", None, "pqr"]],
+        }
+    )
+    exp_val = [
+        ["abc"] * 5,
+        ["abc"] * 5,
+        ["def"] * 5,
+        ["def"] * 5,
+        ["ghi"] * 5,
+        ["ghi"] * 5,
+        ["jkl"] * 5,
+        ["jkl"] * 5,
+        [""] * 5,
+        [""] * 5,
+        ["pqr"] * 5,
+        ["pqr"] * 5,
+    ]
+    for tb, ec, ev in zip(lh5_it, exp_chan, exp_val, strict=False):
+        assert set(tb.keys()) == {
+            "is_valid_0vbb",
+            "timestamp",
+            "zacEmax_ctc_cal",
+            "val",
+        }
+        assert all(tb.val.nda == ev)
+
+    lh5_it.set_group_data(
+        {
+            "val": [[1., 2., None], [3., None, 4.]],
+        }
+    )
+    exp_val = [
+        [1.] * 5,
+        [1.] * 5,
+        [2.] * 5,
+        [2.] * 5,
+        [np.nan] * 5,
+        [np.nan] * 5,
+        [3.] * 5,
+        [3.] * 5,
+        [np.nan] * 5,
+        [np.nan] * 5,
+        [4.] * 5,
+        [4.] * 5,
+    ]
+    for tb, ec, ev in zip(lh5_it, exp_chan, exp_val, strict=False):
+        assert set(tb.keys()) == {
+            "is_valid_0vbb",
+            "timestamp",
+            "zacEmax_ctc_cal",
+            "val",
+        }
+        assert all((tb.val.nda == ev) | (np.isnan(tb.val.nda) & np.isnan(ev)))
+
 
 def test_range(lgnd_file):
     lh5_it = LH5Iterator(

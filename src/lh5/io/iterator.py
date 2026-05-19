@@ -393,13 +393,35 @@ class LH5Iterator(Iterator):
         gp_data = self.group_data[i_set]
         offset = self._fggroups[i_set - 1, 0] if i_set > 0 else 0
         ngroups = self._fggroups[i_set, 1]
-        gp_data = {
-            f: gp_data[f]
-            if self._broadcast_group_data[f]
-            else gp_data[f][(i_ds - offset) % ngroups]
-            for f in gp_data.fields
-        }
-        return ak.Record(gp_data)
+
+        ret_data = {}
+        for f in gp_data.fields:
+            val = gp_data[f] if self._broadcast_group_data[f] else gp_data[f][(i_ds - offset) % ngroups]
+            if val is None:
+                # convert None to a valid value based on the dtype
+                if f in self.lh5_buffer:
+                    dtype = self.lh5_buffer[f].dtype
+                else:
+                    # Yeesh...Get the dtype of an optional numpy array
+                    dtype = self.group_data[f].type
+                    while not isinstance(dtype, ak.types.NumpyType):
+                        dtype = dtype.content
+                    dtype = np.dtype(str(dtype))
+                
+                if dtype.kind == 'u':
+                    val = np.iinfo(dtype).max
+                elif dtype.kind == 'i':
+                    val = np.iinfo(dtype).min
+                elif dtype.kind in ('f', 'S'):
+                    val = np.nan
+                elif dtype.kind in ('S', 'T', 'U'):
+                    val = ""
+                else:
+                    msg = f"Could not handle missing values for {dtype}"
+                    raise ValueError(msg)
+
+            ret_data[f] = val
+        return ak.Record(ret_data)
 
     def _get_ds_cumlen(self, i_ds: int) -> int:
         """Helper to get cumulative dataset length of file/groups"""
@@ -533,7 +555,7 @@ class LH5Iterator(Iterator):
             if self.group_data is not None:
                 data = self.get_group_data(i_ds)
                 for f in data.fields:
-                    self.lh5_buffer[f][local_idx:] = data[f]
+                    self.lh5_buffer[f][i_local:] = data[f]
 
             i_ds += 1
             local_i_entry = 0
