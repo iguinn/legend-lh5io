@@ -548,6 +548,7 @@ def test_group_data(more_lgnd_files):
         assert all(tb.chan.nda == ec)
         assert all(tb.type.nda == et)
 
+
 def test_group_data_none(more_lgnd_files):
     # test provision of metadata about groups
     lh5_it = LH5Iterator(
@@ -612,22 +613,22 @@ def test_group_data_none(more_lgnd_files):
 
     lh5_it.set_group_data(
         {
-            "val": [[1., 2., None], [3., None, 4.]],
+            "val": [[1.0, 2.0, None], [3.0, None, 4.0]],
         }
     )
     exp_val = [
-        [1.] * 5,
-        [1.] * 5,
-        [2.] * 5,
-        [2.] * 5,
+        [1.0] * 5,
+        [1.0] * 5,
+        [2.0] * 5,
+        [2.0] * 5,
         [np.nan] * 5,
         [np.nan] * 5,
-        [3.] * 5,
-        [3.] * 5,
+        [3.0] * 5,
+        [3.0] * 5,
         [np.nan] * 5,
         [np.nan] * 5,
-        [4.] * 5,
-        [4.] * 5,
+        [4.0] * 5,
+        [4.0] * 5,
     ]
     for tb, ec, ev in zip(lh5_it, exp_chan, exp_val, strict=False):
         assert set(tb.keys()) == {

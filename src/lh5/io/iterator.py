@@ -396,7 +396,11 @@ class LH5Iterator(Iterator):
 
         ret_data = {}
         for f in gp_data.fields:
-            val = gp_data[f] if self._broadcast_group_data[f] else gp_data[f][(i_ds - offset) % ngroups]
+            val = (
+                gp_data[f]
+                if self._broadcast_group_data[f]
+                else gp_data[f][(i_ds - offset) % ngroups]
+            )
             if val is None:
                 # convert None to a valid value based on the dtype
                 if f in self.lh5_buffer:
@@ -407,14 +411,14 @@ class LH5Iterator(Iterator):
                     while not isinstance(dtype, ak.types.NumpyType):
                         dtype = dtype.content
                     dtype = np.dtype(str(dtype))
-                
-                if dtype.kind == 'u':
+
+                if dtype.kind == "u":
                     val = np.iinfo(dtype).max
-                elif dtype.kind == 'i':
+                elif dtype.kind == "i":
                     val = np.iinfo(dtype).min
-                elif dtype.kind in ('f', 'S'):
+                elif dtype.kind in ("f", "S"):
                     val = np.nan
-                elif dtype.kind in ('S', 'T', 'U'):
+                elif dtype.kind in ("S", "T", "U"):
                     val = ""
                 else:
                     msg = f"Could not handle missing values for {dtype}"
