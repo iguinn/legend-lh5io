@@ -1127,16 +1127,16 @@ class LH5Iterator(Iterator):
             to ``executor`` (if provided), or else do not parallelize
         executor:
             :class:`concurrent.futures.Executor` object for managing parallelism.
-            If ``None``, create a :class:`concurrent.futures.`ProcessPoolExecutor`
+            If ``None``, create a :class:`concurrent.futures.ProcessPoolExecutor`
             with number of processes equal to ``processes``.
         progress_queue:
             :class:`multiprocessing.Queue` object to which progress information will be
             communicated back go main process. Return mapping with keys:
-                - task_id: the job_id passed to this function
-                - total: total number of datasets to be processed
-                - completed: number of datasets that have been processed
-                - entries: number of entries that have been processed
-                - status: "Initializing", "Processing", "Terminating" or "Finished"
+            - task_id: the job_id passed to this function
+            - total: total number of datasets to be processed
+            - completed: number of datasets that have been processed
+            - entries: number of entries that have been processed
+            - status: "Initializing", "Processing", "Terminating" or "Finished"
         job_id:
             index of first process (see ``task_id`` above; subsequent processes will
             increment by 1) or list of ``task_ids`` for each process
@@ -1248,7 +1248,7 @@ class LH5Iterator(Iterator):
             to ``executor`` (if provided), or else do not parallelize
         executor:
             :class:`concurrent.futures.Executor` object for managing parallelism.
-            If ``None``, create a :class:`concurrent.futures.`ProcessPoolExecutor`
+            If ``None``, create a :class:`concurrent.futures.rocessPoolExecutor`
             with number of processes equal to ``processes``.
         library:
             library to convert the columns to when using a string expression for ``where``.
@@ -1386,7 +1386,7 @@ class LH5Iterator(Iterator):
             to ``executor`` (if provided), or else do not parallelize
         executor:
             :class:`concurrent.futures.Executor` object for managing parallelism.
-            If ``None``, create a :class:`concurrent.futures.`ProcessPoolExecutor`
+            If ``None``, create a :class:`concurrent.futures.rocessPoolExecutor`
             with number of processes equal to ``processes``.
         progress:
             if ``True`` draw progress bar; can also provide an existing rich ``Progress``
