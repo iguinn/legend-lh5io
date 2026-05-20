@@ -205,6 +205,7 @@ class LH5Iterator(Iterator):
                         self.lh5_files.append(flist)
                 else:
                     msg = "lh5_files must be a collection of strings with up to two levels of nesting"
+                    raise ValueError(msg)
 
         if isinstance(group_data, pd.DataFrame):
             group_data = ak.Array(group_data.to_dict(orient="list"))
@@ -226,9 +227,9 @@ class LH5Iterator(Iterator):
             for g in groups:
                 if isinstance(g, str):
                     g = [g]  # noqa: PLW2901
-                elif not isinstance(g, Collection) and all(
+                elif not (isinstance(g, Collection) and all(
                     isinstance(name, str) for name in g
-                ):
+                )):
                     msg = "groups must be a collection of strings with up to two levels of nesting"
                     raise ValueError(msg)
                 self.groups.append(g)

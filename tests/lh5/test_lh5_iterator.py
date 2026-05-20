@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pickle
 import shutil
 from copy import deepcopy
 
@@ -51,7 +52,13 @@ def test_errors(lgnd_file):
         LH5Iterator("non-existent-file.lh5", "random-group")
 
     with pytest.raises(ValueError):
-        LH5Iterator(1, 2)
+        LH5Iterator(1, "gp")
+
+    with pytest.raises(ValueError):
+        LH5Iterator(lgnd_file, 1)
+
+    with pytest.raises(ValueError):
+        LH5Iterator(lgnd_file, "/geds/raw", group_data=[1])
 
     with pytest.raises(ValueError):
         LH5Iterator(
@@ -61,6 +68,23 @@ def test_errors(lgnd_file):
             entry_mask=np.ones(100, "bool"),
         )
 
+    with pytest.raises(ValueError):
+        LH5Iterator(
+            [ [ ["file1"], "file2"], "file3"],
+            "/geds/raw",
+        )
+
+    with pytest.raises(ValueError):
+        LH5Iterator(
+            lgnd_file,
+            ["/grp1", ["/grp2", ["/grp3"]]],
+        )
+
+    with pytest.raises(ValueError):
+        LH5Iterator(lgnd_file, "/geds/raw", h5py_open_mode="x")
+
+    with pytest.raises(ValueError):
+        LH5Iterator(lgnd_file, "/geds/raw", friend = 5)
 
 def test_lgnd_waveform_table_fancy_idx(lgnd_file):
     lh5_it = LH5Iterator(
@@ -87,6 +111,19 @@ def test_lgnd_waveform_table_fancy_idx(lgnd_file):
             94,
             97,
         ],
+        buffer_len=5,
+    )
+
+    lh5_obj = lh5_it.read(0)
+    assert isinstance(lh5_obj, WaveformTable)
+    assert len(lh5_obj) == 5
+
+    mask = np.zeros(100, dtype="bool")
+    mask[[7, 9, 25, 27, 33, 38, 46, 52, 57, 59, 67, 71, 72, 82, 90, 92, 93, 94, 97]] = True
+    lh5_it = LH5Iterator(
+        lgnd_file,
+        "geds/raw/waveform",
+        entry_mask=mask,
         buffer_len=5,
     )
 
@@ -348,6 +385,18 @@ def test_iterate(more_lgnd_files):
 
     lh5_it = LH5Iterator(
         more_lgnd_files[2],
+        [["ch1084803/hit", "ch1084804/hit"], ["ch1084803/hit", "ch1121600/hit"]],
+        field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
+        buffer_len=5,
+    )
+
+    for lh5_out in lh5_it:
+        assert set(lh5_out.keys()) == {"is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"}
+        assert lh5_it.current_i_entry % 5 == 0
+        assert len(lh5_out) == 5
+
+    lh5_it = LH5Iterator(
+        [[f] for f in more_lgnd_files[2]],
         [["ch1084803/hit", "ch1084804/hit"], ["ch1084803/hit", "ch1121600/hit"]],
         field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
         buffer_len=5,
@@ -1014,3 +1063,17 @@ def test_safe_mode(more_lgnd_files):
     with pytest.raises(RuntimeError):
         for _ in lh5_it:
             pass
+
+def test_pickle_iterator(more_lgnd_files):
+    lh5_it = LH5Iterator(
+        more_lgnd_files[2],
+        ["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"],
+        field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
+        buffer_len=5,
+    )
+
+    lh5_pkl = pickle.loads(pickle.dumps(lh5_it))
+
+    assert all(
+        tb == tb_pkl for tb, tb_pkl in zip(lh5_it, lh5_pkl, strict=True)
+    )
