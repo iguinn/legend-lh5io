@@ -227,9 +227,10 @@ class LH5Iterator(Iterator):
             for g in groups:
                 if isinstance(g, str):
                     g = [g]  # noqa: PLW2901
-                elif not (isinstance(g, Collection) and all(
-                    isinstance(name, str) for name in g
-                )):
+                elif not (
+                    isinstance(g, Collection)
+                    and all(isinstance(name, str) for name in g)
+                ):
                     msg = "groups must be a collection of strings with up to two levels of nesting"
                     raise ValueError(msg)
                 self.groups.append(g)

@@ -70,7 +70,7 @@ def test_errors(lgnd_file):
 
     with pytest.raises(ValueError):
         LH5Iterator(
-            [ [ ["file1"], "file2"], "file3"],
+            [[["file1"], "file2"], "file3"],
             "/geds/raw",
         )
 
@@ -84,7 +84,8 @@ def test_errors(lgnd_file):
         LH5Iterator(lgnd_file, "/geds/raw", h5py_open_mode="x")
 
     with pytest.raises(ValueError):
-        LH5Iterator(lgnd_file, "/geds/raw", friend = 5)
+        LH5Iterator(lgnd_file, "/geds/raw", friend=5)
+
 
 def test_lgnd_waveform_table_fancy_idx(lgnd_file):
     lh5_it = LH5Iterator(
@@ -119,7 +120,9 @@ def test_lgnd_waveform_table_fancy_idx(lgnd_file):
     assert len(lh5_obj) == 5
 
     mask = np.zeros(100, dtype="bool")
-    mask[[7, 9, 25, 27, 33, 38, 46, 52, 57, 59, 67, 71, 72, 82, 90, 92, 93, 94, 97]] = True
+    mask[[7, 9, 25, 27, 33, 38, 46, 52, 57, 59, 67, 71, 72, 82, 90, 92, 93, 94, 97]] = (
+        True
+    )
     lh5_it = LH5Iterator(
         lgnd_file,
         "geds/raw/waveform",
@@ -1064,6 +1067,7 @@ def test_safe_mode(more_lgnd_files):
         for _ in lh5_it:
             pass
 
+
 def test_pickle_iterator(more_lgnd_files):
     lh5_it = LH5Iterator(
         more_lgnd_files[2],
@@ -1074,6 +1078,4 @@ def test_pickle_iterator(more_lgnd_files):
 
     lh5_pkl = pickle.loads(pickle.dumps(lh5_it))
 
-    assert all(
-        tb == tb_pkl for tb, tb_pkl in zip(lh5_it, lh5_pkl, strict=True)
-    )
+    assert all(tb == tb_pkl for tb, tb_pkl in zip(lh5_it, lh5_pkl, strict=True))
