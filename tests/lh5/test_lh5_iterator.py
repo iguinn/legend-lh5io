@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pickle
 import shutil
 from copy import deepcopy
 
@@ -9,8 +10,9 @@ import pandas as pd
 import pytest
 from hist import axis
 from lgdo import Array, Table, WaveformTable
+from rich import console, progress
 
-from lh5 import LH5Iterator, read
+from lh5 import LH5Iterator, MapProgress, read
 
 
 @pytest.fixture(scope="module")
@@ -50,7 +52,13 @@ def test_errors(lgnd_file):
         LH5Iterator("non-existent-file.lh5", "random-group")
 
     with pytest.raises(ValueError):
-        LH5Iterator(1, 2)
+        LH5Iterator(1, "gp")
+
+    with pytest.raises(ValueError):
+        LH5Iterator(lgnd_file, 1)
+
+    with pytest.raises(ValueError):
+        LH5Iterator(lgnd_file, "/geds/raw", group_data=[1])
 
     with pytest.raises(ValueError):
         LH5Iterator(
@@ -59,6 +67,21 @@ def test_errors(lgnd_file):
             entry_list=range(100),
             entry_mask=np.ones(100, "bool"),
         )
+
+    with pytest.raises(ValueError):
+        LH5Iterator(
+            [[["file1"], "file2"], "file3"],
+            "/geds/raw",
+        )
+
+    with pytest.raises(ValueError):
+        LH5Iterator(
+            lgnd_file,
+            ["/grp1", ["/grp2", ["/grp3"]]],
+        )
+
+    with pytest.raises(ValueError):
+        LH5Iterator(lgnd_file, "/geds/raw", h5py_open_mode="x")
 
 
 def test_lgnd_waveform_table_fancy_idx(lgnd_file):
@@ -86,6 +109,21 @@ def test_lgnd_waveform_table_fancy_idx(lgnd_file):
             94,
             97,
         ],
+        buffer_len=5,
+    )
+
+    lh5_obj = lh5_it.read(0)
+    assert isinstance(lh5_obj, WaveformTable)
+    assert len(lh5_obj) == 5
+
+    mask = np.zeros(100, dtype="bool")
+    mask[[7, 9, 25, 27, 33, 38, 46, 52, 57, 59, 67, 71, 72, 82, 90, 92, 93, 94, 97]] = (
+        True
+    )
+    lh5_it = LH5Iterator(
+        lgnd_file,
+        "geds/raw/waveform",
+        entry_mask=mask,
         buffer_len=5,
     )
 
@@ -357,6 +395,18 @@ def test_iterate(more_lgnd_files):
         assert lh5_it.current_i_entry % 5 == 0
         assert len(lh5_out) == 5
 
+    lh5_it = LH5Iterator(
+        [[f] for f in more_lgnd_files[2]],
+        [["ch1084803/hit", "ch1084804/hit"], ["ch1084803/hit", "ch1121600/hit"]],
+        field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
+        buffer_len=5,
+    )
+
+    for lh5_out in lh5_it:
+        assert set(lh5_out.keys()) == {"is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"}
+        assert lh5_it.current_i_entry % 5 == 0
+        assert len(lh5_out) == 5
+
     # different number of file sets and group sets
     with pytest.raises(ValueError):
         LH5Iterator(
@@ -435,6 +485,42 @@ def test_group_data(more_lgnd_files):
         }
         assert all(tb.chan.nda == ec)
 
+    # group_data won't be broadcast if provided after initialization
+    with pytest.raises(ValueError):
+        lh5_it.set_group_data({"chan": [1084803, 1084804, 1121600]})
+
+    # set_group_data, with one set of channels per file.
+    lh5_it.set_group_data(
+        {
+            "channel": [[1084803, 1084804, 1121600]] * 2,
+            "val": [["abc", "def", "ghi"], ["jkl", "mno", "pqr"]],
+        }
+    )
+    exp_val = [
+        ["abc"] * 5,
+        ["abc"] * 5,
+        ["def"] * 5,
+        ["def"] * 5,
+        ["ghi"] * 5,
+        ["ghi"] * 5,
+        ["jkl"] * 5,
+        ["jkl"] * 5,
+        ["mno"] * 5,
+        ["mno"] * 5,
+        ["pqr"] * 5,
+        ["pqr"] * 5,
+    ]
+    for tb, ec, ev in zip(lh5_it, exp_chan, exp_val, strict=False):
+        assert set(tb.keys()) == {
+            "is_valid_0vbb",
+            "timestamp",
+            "zacEmax_ctc_cal",
+            "channel",  # note: changed field from "chan" to "channel"
+            "val",
+        }
+        assert all(tb.channel.nda == ec)
+        assert all(tb.val.nda == ev)
+
     # group_data provided using awkward array as array of records
     lh5_it = LH5Iterator(
         more_lgnd_files[2],
@@ -492,7 +578,7 @@ def test_group_data(more_lgnd_files):
 
     lh5_it = LH5Iterator(
         more_lgnd_files[2],
-        ["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"],
+        [["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"]] * 2,
         field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
         buffer_len=5,
         group_data={
@@ -510,6 +596,109 @@ def test_group_data(more_lgnd_files):
         }
         assert all(tb.chan.nda == ec)
         assert all(tb.type.nda == et)
+
+    # try changing field mask while there is group data
+    lh5_it.reset_field_mask(["is_valid_0vbb", "timestamp"])
+    for tb, ec, et in zip(lh5_it, exp_chan, exp_type, strict=False):
+        assert set(tb.keys()) == {
+            "is_valid_0vbb",
+            "timestamp",
+            "chan",
+            "type",
+        }
+        assert all(tb.chan.nda == ec)
+        assert all(tb.type.nda == et)
+
+
+def test_group_data_none(more_lgnd_files):
+    # test provision of metadata about groups
+    lh5_it = LH5Iterator(
+        more_lgnd_files[2],
+        ["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"],
+        field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
+        buffer_len=5,
+        group_data={"chan": [None, 1084804, 1121600]},
+    )
+
+    int_nan = np.iinfo(np.dtype(int)).min
+    exp_chan = [
+        [int_nan] * 5,
+        [int_nan] * 5,
+        [1084804] * 5,
+        [1084804] * 5,
+        [1121600] * 5,
+        [1121600] * 5,
+        [int_nan] * 5,
+        [int_nan] * 5,
+        [1084804] * 5,
+        [1084804] * 5,
+        [1121600] * 5,
+        [1121600] * 5,
+    ]
+    for tb, ec in zip(lh5_it, exp_chan, strict=False):
+        assert set(tb.keys()) == {
+            "is_valid_0vbb",
+            "timestamp",
+            "zacEmax_ctc_cal",
+            "chan",
+        }
+        assert all(tb.chan.nda == ec)
+
+    lh5_it.set_group_data(
+        {
+            "val": [["abc", "def", "ghi"], ["jkl", None, "pqr"]],
+        }
+    )
+    exp_val = [
+        ["abc"] * 5,
+        ["abc"] * 5,
+        ["def"] * 5,
+        ["def"] * 5,
+        ["ghi"] * 5,
+        ["ghi"] * 5,
+        ["jkl"] * 5,
+        ["jkl"] * 5,
+        [""] * 5,
+        [""] * 5,
+        ["pqr"] * 5,
+        ["pqr"] * 5,
+    ]
+    for tb, ev in zip(lh5_it, exp_val, strict=False):
+        assert set(tb.keys()) == {
+            "is_valid_0vbb",
+            "timestamp",
+            "zacEmax_ctc_cal",
+            "val",
+        }
+        assert all(tb.val.nda == ev)
+
+    lh5_it.set_group_data(
+        {
+            "val": [[1.0, 2.0, None], [3.0, None, 4.0]],
+        }
+    )
+    exp_val = [
+        [1.0] * 5,
+        [1.0] * 5,
+        [2.0] * 5,
+        [2.0] * 5,
+        [np.nan] * 5,
+        [np.nan] * 5,
+        [3.0] * 5,
+        [3.0] * 5,
+        [np.nan] * 5,
+        [np.nan] * 5,
+        [4.0] * 5,
+        [4.0] * 5,
+    ]
+    for tb, ev in zip(lh5_it, exp_val, strict=False):
+        assert set(tb.keys()) == {
+            "is_valid_0vbb",
+            "timestamp",
+            "zacEmax_ctc_cal",
+            "val",
+        }
+        assert all((tb.val.nda == ev) | (np.isnan(tb.val.nda) & np.isnan(ev)))
 
 
 def test_range(lgnd_file):
@@ -632,6 +821,13 @@ def test_query(more_lgnd_files):
             tb_exp = deepcopy(tb)
         else:
             tb_exp.append(tb)
+
+    # test with no selection applied
+    tb_all = lh5_it.query("")
+    assert tb_all == tb_exp
+    tb_all = lh5_it.query("", processes=3)
+    assert tb_all == tb_exp
+
     tb_exp = query_lgdo(tb_exp, None)
 
     # filter returning Table
@@ -778,6 +974,42 @@ def test_hist(more_lgnd_files):
     assert np.all(np.array(h_pd_str_mp) == h_exp)
 
 
+def test_progress_bar(more_lgnd_files):
+    lh5_it = LH5Iterator(
+        more_lgnd_files[2],
+        ["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"],
+        field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
+        buffer_len=5,
+    )
+
+    # Test single-threaded progress bar
+    cons = console.Console(force_terminal=True, record=True)
+    lh5_it.query("", progress=cons)
+    res = cons.export_text().split("\n")[-2]
+    assert "Finished" in res
+    assert "6.0/6 ds, 60 rows" in res
+
+    # Test multi-threaded progress bars
+    lh5_it.query("", processes=3, progress=cons)
+    res = cons.export_text().split("\n")[-4:-1]
+    for i, line in enumerate(res):
+        assert f"#{i}: Finished" in line
+        assert "2.0/2 ds, 20 rows" in line
+
+    # Test with custom formatting
+    prog = progress.Progress(
+        progress.TextColumn("{task.description}: testing"),
+        console=cons,
+        auto_refresh=False,
+    )
+    descriptions = ["test1", "Test2", "test c"]
+    with MapProgress(descriptions, prog) as pr:
+        list(lh5_it.map(return_tb, progress_queue=pr.queue))
+    res = cons.export_text().split("\n")[-4:-1]
+    for desc, line in zip(descriptions, res, strict=False):
+        assert f"{desc}: testing" in line
+
+
 def test_iterator_wo_mode_write(tmp_path, lh5_file):
     dst = tmp_path / "rw.lh5"
     shutil.copy(lh5_file, dst)
@@ -843,3 +1075,16 @@ def test_safe_mode(more_lgnd_files):
     with pytest.raises(RuntimeError):
         for _ in lh5_it:
             pass
+
+
+def test_pickle_iterator(more_lgnd_files):
+    lh5_it = LH5Iterator(
+        more_lgnd_files[2],
+        ["ch1084803/hit", "ch1084804/hit", "ch1121600/hit"],
+        field_mask=["is_valid_0vbb", "timestamp", "zacEmax_ctc_cal"],
+        buffer_len=5,
+    )
+
+    lh5_pkl = pickle.loads(pickle.dumps(lh5_it))
+
+    assert all(tb == tb_pkl for tb, tb_pkl in zip(lh5_it, lh5_pkl, strict=True))

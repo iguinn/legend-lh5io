@@ -3,10 +3,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Collection, Iterator, Mapping
 from concurrent.futures import Executor, ProcessPoolExecutor
+from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
-from itertools import chain, product
+from itertools import chain
+from multiprocessing import Manager, Queue
+from queue import Empty
+from threading import Event, Thread
 from typing import Any
 
 import awkward as ak
@@ -16,9 +20,12 @@ from hist import Hist, axis
 from lgdo.types import LGDOCollection, Table
 from lgdo.units import default_units_registry as ureg
 from numpy.typing import NDArray
+from rich import console, progress
 
 from .store import LH5Store
 from .utils import expand_path
+
+log = logging.getLogger(__name__)
 
 
 class LH5Iterator(Iterator):
@@ -191,111 +198,62 @@ class LH5Iterator(Iterator):
                 elif isinstance(f, Collection) and all(
                     isinstance(name, str) for name in f
                 ):
-                    self.lh5_files.append(
-                        [
-                            path
-                            for name in f
-                            for path in expand_path(
-                                name, list=True, base_path=base_path
-                            )
-                        ]
-                    )
+                    for name in f:
+                        flist = expand_path(name, list=True, base_path=base_path)
+                        if len(flist) == 0:
+                            log.warning(f"{name} did not match any files")
+                        self.lh5_files.append(flist)
                 else:
                     msg = "lh5_files must be a collection of strings with up to two levels of nesting"
+                    raise ValueError(msg)
+
+        if isinstance(group_data, pd.DataFrame):
+            group_data = ak.Array(group_data.to_dict(orient="list"))
 
         # convert groups into a nested list
         if isinstance(groups, str):
             self.groups = [[groups]] * len(self.lh5_files)
+            if group_data is not None:
+                group_data = [group_data] * len(self.lh5_files)
         elif not isinstance(groups, Collection):
             msg = "group must be a string or collection of strings"
             raise ValueError(msg)
         elif all(isinstance(g, str) for g in groups):
             self.groups = [groups] * len(self.lh5_files)
+            if group_data is not None:
+                group_data = [group_data] * len(self.lh5_files)
         else:
             self.groups = []
             for g in groups:
                 if isinstance(g, str):
                     g = [g]  # noqa: PLW2901
-                elif not isinstance(g, Collection) and all(
-                    isinstance(name, str) for name in g
+                elif not (
+                    isinstance(g, Collection)
+                    and all(isinstance(name, str) for name in g)
                 ):
                     msg = "groups must be a collection of strings with up to two levels of nesting"
                     raise ValueError(msg)
                 self.groups.append(g)
-
-        # convert group_data into array of records
-        if isinstance(group_data, pd.DataFrame):
-            self.group_data = ak.Array(dict(group_data))
-        elif group_data is not None:
-            self.group_data = ak.from_iter(group_data)
-        else:
-            self.group_data = None
 
         # check that groups and lh5_files are compatible
         if len(self.groups) != len(self.lh5_files):
             msg = "lh5_files and groups could not be broadcast onto one another"
             raise ValueError(msg)
 
-        if isinstance(self.group_data, (ak.Array, ak.Record)):
-            if not self.group_data.fields:
-                msg = "group_data must have named fields"
-                raise ValueError(msg)
+        # build map of cumulative number of datasets for file/group pairs and number of files/groups
+        self._fggroups = np.array(
+            [
+                (len(f) * len(g), len(g))
+                for f, g in zip(self.lh5_files, self.groups, strict=True)
+            ]
+        )
+        self._fggroups[:, 0] = np.cumsum(self._fggroups[:, 0])
+        self.group_data = None
+        self._broadcast_group_data = None
 
-            # flatten out any nested fields with _'s
-            def flatten_fields(ar: ak.Array):
-                ret = {}
-                for f in ar.fields:
-                    if not isinstance(ar[f], ak.Record):
-                        ret[f] = ar[f]
-                    else:
-                        contents = flatten_fields(ar[f])
-                        for sub_f, val in contents.items():
-                            ret[f"{f}_{sub_f}"] = val
-                return ret
-
-            self.group_data = flatten_fields(self.group_data)
-
-            # repeat group data over any dimensions as needed
-            broadcast_files = not all(
-                not isinstance(ar, ak.Array) or len(ar) == len(self.lh5_files)
-                for ar in self.group_data.values()
-            )
-            records = []
-            for i_f, gps in enumerate(self.groups):
-                records.append([])
-
-                for ar in self.group_data.values():
-                    v = ar if broadcast_files else ar[i_f]
-                    if isinstance(v, ak.Array) and len(v) != len(gps):
-                        msg = "group_data could not be broadcast onto groups"
-                        raise ValueError(msg)
-
-                for i_g in range(len(gps)):
-                    record = {}
-                    for f, ar in self.group_data.items():
-                        v = ar if broadcast_files else ar[i_f]
-                        record[f] = v if not isinstance(v, ak.Array) else v[i_g]
-                    records[i_f].append(record)
-            self.group_data = ak.Array(records)
-
-        # outer-product and flatten nested lists to get all group/file combinations for datasets
-        file_list = []
-        group_list = []
-        group_data_list = [] if self.group_data is not None else None
-        for i in range(len(self.lh5_files)):
-            f_list = self.lh5_files[i]
-            g_list = self.groups[i]
-            gd_list = self.group_data[i] if self.group_data is not None else None
-            for i_f, i_g in product(range(len(f_list)), range(len(g_list))):
-                file_list.append(f_list[i_f])
-                group_list.append(g_list[i_g])
-                if gd_list is not None:
-                    group_data_list.append(gd_list[i_g])
-        self.lh5_files = file_list
-        self.groups = group_list
-        if self.group_data is not None:
-            self.group_data = ak.fill_none(ak.Array(group_data_list), np.nan)
-        self.n_datasets = len(self.lh5_files)
+        # track offset and number of datasets; used by _select_datasets
+        self._ds_offset = 0
+        self.n_datasets = self._fggroups[-1, 0] if len(self._fggroups) > 0 else 0
 
         if entry_list is not None and entry_mask is not None:
             msg = "entry_list and entry_mask arguments are mutually exclusive"
@@ -320,8 +278,8 @@ class LH5Iterator(Iterator):
 
         # lh5 buffer will contain all fields and be used for I/O (with a field mask)
         self.lh5_buffer = self.lh5_st.get_buffer(
-            self.groups[0],
-            self.lh5_files[0],
+            self.get_group(0),
+            self.get_file(0),
             size=0,
         )
 
@@ -342,6 +300,9 @@ class LH5Iterator(Iterator):
         # Note: group_data is added to table here!
         self.reset_field_mask(field_mask)
         self.buffer_len = buffer_len
+
+        # add group data
+        self.set_group_data(group_data)
 
         # Attach the friend(s)
         self.safe_mode = safe_mode
@@ -396,12 +357,84 @@ class LH5Iterator(Iterator):
                 for i_ds, local_mask in enumerate(entry_mask):
                     self.local_entry_list[i_ds] = np.nonzero(local_mask)[0]
 
+    def get_file(self, i_ds: int) -> str:
+        """Get file name for dataset i_ds"""
+        if i_ds < 0 or i_ds >= self.n_datasets:
+            msg = f"dataset index {i_ds} out of range"
+            raise IndexError(msg)
+        i_ds += self._ds_offset
+
+        i_set = np.searchsorted(self._fggroups[:, 0], i_ds, "right")
+        offset = self._fggroups[i_set - 1, 0] if i_set > 0 else 0
+        ngroups = self._fggroups[i_set, 1]
+        return self.lh5_files[i_set][(i_ds - offset) // ngroups]
+
+    def get_group(self, i_ds: int) -> str:
+        """Get group name for dataset i_ds"""
+        if i_ds < 0 or i_ds >= self.n_datasets:
+            msg = f"dataset index {i_ds} out of range"
+            raise IndexError(msg)
+        i_ds += self._ds_offset
+
+        i_set = np.searchsorted(self._fggroups[:, 0], i_ds, "right")
+        offset = self._fggroups[i_set - 1, 0] if i_set > 0 else 0
+        ngroups = self._fggroups[i_set, 1]
+        return self.groups[i_set][(i_ds - offset) % ngroups]
+
+    def get_group_data(self, i_ds: int) -> ak.Record | None:
+        """Get group data for dataset i_ds"""
+        if self.group_data is None:
+            return None
+
+        if i_ds < 0 or i_ds >= self.n_datasets:
+            msg = f"dataset index {i_ds} out of range"
+            raise IndexError(msg)
+        i_ds += self._ds_offset
+
+        i_set = np.searchsorted(self._fggroups[:, 0], i_ds, "right")
+        gp_data = self.group_data[i_set]
+        offset = self._fggroups[i_set - 1, 0] if i_set > 0 else 0
+        ngroups = self._fggroups[i_set, 1]
+
+        ret_data = {}
+        for f in gp_data.fields:
+            val = (
+                gp_data[f]
+                if self._broadcast_group_data[f]
+                else gp_data[f][(i_ds - offset) % ngroups]
+            )
+            if val is None:
+                # convert None to a valid value based on the dtype
+                if f in self.lh5_buffer:
+                    dtype = self.lh5_buffer[f].dtype
+                else:
+                    # Yeesh...Get the dtype of an optional numpy array
+                    dtype = self.group_data[f].type
+                    while not isinstance(dtype, ak.types.NumpyType):
+                        dtype = dtype.content
+                    dtype = np.dtype(str(dtype))
+
+                if dtype.kind == "u":
+                    val = np.iinfo(dtype).max
+                elif dtype.kind == "i":
+                    val = np.iinfo(dtype).min
+                elif dtype.kind in ("f", "S"):
+                    val = np.nan
+                elif dtype.kind in ("S", "T", "U"):
+                    val = ""
+                else:
+                    msg = f"Could not handle missing values for {dtype}"
+                    raise ValueError(msg)
+
+            ret_data[f] = val
+        return ak.Record(ret_data)
+
     def _get_ds_cumlen(self, i_ds: int) -> int:
         """Helper to get cumulative dataset length of file/groups"""
         if i_ds < 0:
             return 0
-        if i_ds >= len(self.ds_map):
-            return self.ds_map[-1]
+        if i_ds >= self.n_datasets:
+            return self._get_ds_cumlen(self.n_datasets - 1)
         fcl = self.ds_map[i_ds]
 
         # if we haven't already calculated, calculate for all files up to i_ds
@@ -410,7 +443,7 @@ class LH5Iterator(Iterator):
             fcl = self.ds_map[i_start - 1] if i_start > 0 else 0
 
             for i in range(i_start, i_ds + 1):
-                fcl += self.lh5_st.read_n_rows(self.groups[i], self.lh5_files[i])
+                fcl += self.lh5_st.read_n_rows(self.get_group(i), self.get_file(i))
                 self.ds_map[i] = fcl
         return fcl
 
@@ -418,8 +451,8 @@ class LH5Iterator(Iterator):
         """Helper to get cumulative iterator entries in file/groups"""
         if i_ds < 0:
             return 0
-        if i_ds >= len(self.entry_map):
-            return self.entry_map[-1]
+        if i_ds >= self.n_datasets:
+            return self._get_ds_cumentries(self.n_datasets - 1)
         n = self.entry_map[i_ds]
 
         # if we haven't already calculated, calculate for all files up to i_ds
@@ -437,13 +470,17 @@ class LH5Iterator(Iterator):
                     n += len(elist)
                     # check that file entries fall inside of file
                     if len(elist) > 0 and elist[-1] >= fcl:
-                        logging.warning(f"Found entries out of range for file {i}")
+                        log.warning(f"Found entries out of range for file {i}")
                         n += np.searchsorted(elist, fcl, "right") - len(elist)
                 self.entry_map[i] = n
         return n
 
     def get_ds_entrylist(self, i_ds: int) -> np.ndarray:
         """Helper to get entry list for dataset"""
+        if i_ds < 0 or i_ds > self.n_datasets:
+            msg = f"dataset index {i_ds} out of range"
+            raise IndexError(msg)
+
         # If no entry list is provided
         if self.local_entry_list is None:
             return None
@@ -507,8 +544,8 @@ class LH5Iterator(Iterator):
 
             if len(self.field_mask) > 0 or not isinstance(self.lh5_buffer, Table):
                 self.lh5_buffer = self.lh5_st.read(
-                    self.groups[i_ds],
-                    self.lh5_files[i_ds],
+                    self.get_group(i_ds),
+                    self.get_file(i_ds),
                     start_row=i_local,
                     n_rows=n_entries - len(self.lh5_buffer),
                     idx=local_idx,
@@ -522,9 +559,9 @@ class LH5Iterator(Iterator):
                 )
 
             if self.group_data is not None:
-                data = self.group_data[i_ds]
+                data = self.get_group_data(i_ds)
                 for f in data.fields:
-                    self.lh5_buffer[f][local_idx:] = data[f]
+                    self.lh5_buffer[f][i_local:] = data[f]
 
             i_ds += 1
             local_i_entry = 0
@@ -542,7 +579,7 @@ class LH5Iterator(Iterator):
                 i_diff = np.argmax(self.entry_map[:i_ds] != friend.entry_map[:i_ds])
                 msg = (
                     f"with safe_mode = True, require that datasets have same sizes between friends. "
-                    f"File {self.lh5_files[i_diff]} group {self.groups[i_diff]} differs from "
+                    f"File {self.get_file(i_diff)} group {self.get_group(i_diff)} differs from "
                     f"file {friend.lh5_files[i_diff]} group {friend.groups[i_diff]}."
                 )
                 raise RuntimeError(msg)
@@ -558,16 +595,14 @@ class LH5Iterator(Iterator):
         if isinstance(buffer_len, str):
             buffer_len = ureg.Quantity(buffer_len)
         if isinstance(buffer_len, ureg.Quantity):
-            # in some edge cases, we might have no data in some of the files for some of the group(s).
-            g = self.groups[0]
-            sizes_in_bytes = {}
-            for f in self.lh5_files:
+            for i_ds in range(self.n_datasets):
+                f = self.get_file(i_ds)
+                g = self.get_group(i_ds)
                 n_row = max(self.lh5_st.read_n_rows(g, f), 1)
-                sizes_in_bytes[f] = self.lh5_st.read_size_in_bytes(g, f) / n_row
-            size_in_bytes = max(sizes_in_bytes.values())
-
-            if size_in_bytes > 0:
-                buffer_len = int(buffer_len / (size_in_bytes * ureg.B))
+                size_in_bytes = self.lh5_st.read_size_in_bytes(g, f) / n_row
+                if size_in_bytes > 0:
+                    buffer_len = int(buffer_len / (size_in_bytes * ureg.B))
+                    break
 
         self._buffer_len = buffer_len
         for fr in self.friend:
@@ -590,10 +625,10 @@ class LH5Iterator(Iterator):
             msg = "Friend must be an LH5Iterator"
             raise ValueError(msg)
 
-        if self.safe_mode and len(self.lh5_files) != len(friend.lh5_files):
+        if self.safe_mode and self.n_datasets != friend.n_datasets:
             msg = (
                 f"with safe_mode = True, friend iterator must have same number of datasets. "
-                f"Found {len(self.lh5_files)} in self, and {len(friend.lh5_files)} in friend."
+                f"Found {self.n_datasets} in self, and {friend.n_datasets} in friend."
             )
             raise RuntimeError(msg)
 
@@ -613,6 +648,49 @@ class LH5Iterator(Iterator):
             prefix=prefix,
             suffix=suffix,
         )
+
+    def set_group_data(self, group_data: Mapping[Collection] | ak.Array):
+        """
+        Set group data which will be joined to each table based on the current file/group.
+        Should have same structure of groups, with one entry per file and either one subentry
+        per group or one entry that will be broadcast across all groups.
+
+        Note: unlike in the constructor, the group_data will not be broadcast over all files!
+        """
+        old_fields = (
+            set(self.group_data.fields) if self.group_data is not None else set()
+        )
+
+        if group_data is not None:
+            self.group_data = ak.Array(group_data)
+            if not self.group_data.fields:
+                msg = "group_data must have named fields"
+                raise ValueError(msg)
+            if len(self.group_data) != len(self.lh5_files):
+                msg = "group_data must have same structure as groups"
+                raise ValueError(msg)
+
+            # check if we need to broadcast group data over groups
+            self._broadcast_group_data = {}
+            for f in self.group_data.fields:
+                if self.group_data[f].ndim > 1:
+                    if ak.any(ak.num(self.group_data[f]) != self._fggroups[:, 1]):
+                        msg = f"group_data field '{f}' has incompatible length with groups"
+                        raise ValueError(msg)
+                    self._broadcast_group_data[f] = False
+                else:
+                    self._broadcast_group_data[f] = True
+
+            # replace old group data with new in buffer
+            for f in old_fields:
+                self.lh5_buffer.remove_field(f)
+
+            tb_gd = deepcopy(Table(ak.Array([self.get_group_data(0)])))
+            tb_gd.resize(len(self.lh5_buffer))
+            self.lh5_buffer.join(tb_gd)
+        else:
+            self.group_data = None
+            self._broadcast_group_data = None
 
     def reset_field_mask(
         self,
@@ -702,8 +780,8 @@ class LH5Iterator(Iterator):
             self.lh5_buffer = copy_data(
                 self.lh5_buffer,
                 self.lh5_st.get_buffer(
-                    self.groups[0],
-                    self.lh5_files[0],
+                    self.get_group(0),
+                    self.get_file(0),
                     size=len(self.lh5_buffer),
                     field_mask=self.field_mask,
                 ),
@@ -724,7 +802,7 @@ class LH5Iterator(Iterator):
         # join Table with group metadata; repeat first record to initialize
         if self.group_data is not None:
             # deepcopy required to prevent ownership conflict
-            tb_gd = deepcopy(Table(self.group_data[0:1], 1))
+            tb_gd = deepcopy(Table(ak.Array([self.get_group_data(0)])))
             tb_gd.resize(len(self.lh5_buffer))
             if isinstance(remaining_fields, dict):
                 for f in tb_gd:
@@ -735,7 +813,7 @@ class LH5Iterator(Iterator):
             self.lh5_buffer.join(tb_gd)
 
         if warn_missing and len(remaining_fields) > 0:
-            logging.warning(f"Fields {remaining_fields} in field mask were not found")
+            log.warning(f"Fields {remaining_fields} in field mask were not found")
 
     @property
     def current_local_entries(self) -> NDArray[int]:
@@ -808,7 +886,7 @@ class LH5Iterator(Iterator):
             # number of entries to read from this file
             ds_end = self._get_ds_cumentries(i_ds)
             n = min(ds_end - ds_start - i_local, len(cur_files) - i)
-            cur_files[i : i + n] = self.lh5_files[i_ds]
+            cur_files[i : i + n] = self.get_file(i_ds)
 
             i_ds += 1
             ds_start = ds_end
@@ -830,7 +908,7 @@ class LH5Iterator(Iterator):
             # number of entries to read from this file
             ds_end = self._get_ds_cumentries(i_ds)
             n = min(ds_end - ds_start - i_local, len(cur_groups) - i)
-            cur_groups[i : i + n] = self.groups[i_ds]
+            cur_groups[i : i + n] = self.get_group(i_ds)
 
             i_ds += 1
             ds_start = ds_end
@@ -899,7 +977,7 @@ class LH5Iterator(Iterator):
         """Reinitialize lh5_st and lh5_buffer to avoid potential issues"""
         self.__dict__ = d
         self.lh5_st = LH5Store(**(d["lh5_st"]))
-        self.lh5_st.gimme_file(self.lh5_files[0])
+        self.lh5_st.gimme_file(self.get_file(0))
 
         self.lh5_buffer = Table(size=0)
 
@@ -915,13 +993,9 @@ class LH5Iterator(Iterator):
 
         self.reset_field_mask(build_field_mask(self))
 
-    def _select_groups(self, i_beg, i_end):
+    def _select_datasets(self, i_beg, i_end):
         """Reduce list of files and groups; used by _generate_workers"""
-        s = slice(i_beg, i_end)
-        self.lh5_files = self.lh5_files[s]
-        self.groups = self.groups[s]
-        if self.group_data is not None:
-            self.group_data = self.group_data[s]
+        self._ds_offset = i_beg
         self.n_datasets = i_end - i_beg
 
         if i_beg > 0:
@@ -937,29 +1011,29 @@ class LH5Iterator(Iterator):
                 out=self.entry_map,
                 where=self.entry_map != np.iinfo("q").max,
             )
-        self.ds_map = self.ds_map[s]
-        self.entry_map = self.entry_map[s]
+        self.ds_map = self.ds_map[i_beg:i_end]
+        self.entry_map = self.entry_map[i_beg:i_end]
 
         if self.local_entry_list is not None:
-            self.local_entry_list = self.local_entry_list[s]
+            self.local_entry_list = self.local_entry_list[i_beg:i_end]
         self.global_entry_list = None
 
         for fr in self.friend:
-            fr._select_groups(i_beg, i_end)
+            fr._select_datasets(i_beg, i_end)
 
     def _generate_workers(self, n_workers: int):
         """Create n_workers copy of this iterator, dividing the datasets (file/groups)
         groups between them. These are intended for parallel use"""
-        i_datasets = np.linspace(0, len(self.lh5_files), n_workers + 1).astype("int")
+        i_datasets = np.linspace(0, self.n_datasets, n_workers + 1).astype("int")
         # if we have an entry list, get local entries for all files
         if self.local_entry_list is not None:
-            for i in range(len(self.lh5_files)):
+            for i in range(self.n_datasets):
                 self.get_ds_entrylist(i)
 
         worker_its = []
         for i_worker in range(n_workers):
             it = deepcopy(self)
-            it._select_groups(i_datasets[i_worker], i_datasets[i_worker + 1])
+            it._select_datasets(i_datasets[i_worker], i_datasets[i_worker + 1])
             worker_its += [it]
 
         return worker_its
@@ -973,6 +1047,8 @@ class LH5Iterator(Iterator):
         terminate: Callable[LH5Iterator] = None,
         processes: int = None,
         executor: Executor = None,
+        progress_queue: Queue = None,
+        job_id: int | Collection[int] = 0,
     ) -> Iterator[Any]:
         """Map function over iterator blocks.
 
@@ -1053,8 +1129,19 @@ class LH5Iterator(Iterator):
             to ``executor`` (if provided), or else do not parallelize
         executor:
             :class:`concurrent.futures.Executor` object for managing parallelism.
-            If ``None``, create a :class:`concurrent.futures.`ProcessPoolExecutor`
+            If ``None``, create a :class:`concurrent.futures.ProcessPoolExecutor`
             with number of processes equal to ``processes``.
+        progress_queue:
+            :class:`multiprocessing.Queue` object to which progress information will be
+            communicated back go main process. Return mapping with keys:
+            - task_id: the job_id passed to this function
+            - total: total number of datasets to be processed
+            - completed: number of datasets that have been processed
+            - entries: number of entries that have been processed
+            - status: "Initializing", "Processing", "Terminating" or "Finished"
+        job_id:
+            index of first process (see ``task_id`` above; subsequent processes will
+            increment by 1) or list of ``task_ids`` for each process
         """
 
         # if no aggregate is provided, append results to a list
@@ -1066,7 +1153,16 @@ class LH5Iterator(Iterator):
             if isinstance(executor, Executor):
                 processes = executor._max_workers
             else:
-                return _map_helper(fun, aggregate, init, begin, terminate, self)
+                return _map_helper(
+                    fun,
+                    aggregate,
+                    init,
+                    begin,
+                    terminate,
+                    self,
+                    job_id,
+                    progress_queue=progress_queue,
+                )
 
         if executor is None:
             executor = ProcessPoolExecutor(processes)
@@ -1074,7 +1170,19 @@ class LH5Iterator(Iterator):
         it_pool = self._generate_workers(processes)
 
         result = executor.map(
-            partial(_map_helper, fun, aggregate, init, begin, terminate), it_pool
+            partial(
+                _map_helper,
+                fun,
+                aggregate,
+                init,
+                begin,
+                terminate,
+                progress_queue=progress_queue,
+            ),
+            it_pool,
+            job_id
+            if isinstance(job_id, Collection)
+            else range(job_id, job_id + processes),
         )
 
         # If no aggregator was given, chain iterators
@@ -1090,6 +1198,7 @@ class LH5Iterator(Iterator):
         processes: Executor | int = None,
         executor: Executor = None,
         library: str = None,
+        progress: progress.Progress | console.Console | bool = True,
     ):
         """
         Query the data files in the iterator
@@ -1141,11 +1250,14 @@ class LH5Iterator(Iterator):
             to ``executor`` (if provided), or else do not parallelize
         executor:
             :class:`concurrent.futures.Executor` object for managing parallelism.
-            If ``None``, create a :class:`concurrent.futures.`ProcessPoolExecutor`
+            If ``None``, create a :class:`concurrent.futures.rocessPoolExecutor`
             with number of processes equal to ``processes``.
         library:
             library to convert the columns to when using a string expression for ``where``.
             See :meth:`Table.eval`.
+        progress:
+            if ``True`` draw progress bar; can also provide an existing rich ``Progress``
+            or ``Console`` object
         """
         if where is None:
             where = _identity
@@ -1154,29 +1266,57 @@ class LH5Iterator(Iterator):
             where = _table_query(where, library, fields)
 
         test = where(self.lh5_buffer, self)
-        if isinstance(test, LGDOCollection):
-            it = self.map(
-                where, processes=processes, executor=executor, aggregate=Table.append
-            )
-            if isinstance(it, LGDOCollection):
-                return it
-            ret = next(it)
-            for res in it:
-                ret.append(res)
-            return ret
-        if isinstance(test, pd.DataFrame):
-            return pd.concat(
-                list(self.map(where, processes=processes, executor=executor)),
-                ignore_index=True,
-            )
-        if isinstance(test, np.ndarray):
-            return np.concatenate(
-                list(self.map(where, processes=processes, executor=executor))
-            )
-        if isinstance(test, ak.Array):
-            return ak.concatenate(
-                list(self.map(where, processes=processes, executor=executor))
-            )
+
+        with MapProgress(processes, progress) if progress else nullcontext() as prog:
+            pq = prog.queue if prog else None
+            if isinstance(test, LGDOCollection):
+                it = self.map(
+                    where,
+                    processes=processes,
+                    executor=executor,
+                    aggregate=Table.append,
+                    progress_queue=pq,
+                )
+                if isinstance(it, LGDOCollection):
+                    return it
+                ret = deepcopy(next(it))
+                for res in it:
+                    ret.append(res)
+                return ret
+            if isinstance(test, pd.DataFrame):
+                return pd.concat(
+                    list(
+                        self.map(
+                            where,
+                            processes=processes,
+                            executor=executor,
+                            progress_queue=pq,
+                        )
+                    ),
+                    ignore_index=True,
+                )
+            if isinstance(test, np.ndarray):
+                return np.concatenate(
+                    list(
+                        self.map(
+                            where,
+                            processes=processes,
+                            executor=executor,
+                            progress_queue=pq,
+                        )
+                    )
+                )
+            if isinstance(test, ak.Array):
+                return ak.concatenate(
+                    list(
+                        self.map(
+                            where,
+                            processes=processes,
+                            executor=executor,
+                            progress_queue=pq,
+                        )
+                    )
+                )
 
         msg = f"Cannot call query with return type {test.__class__}. "
         "Allowed return types: LGDOCollection, np.array, pd.DataFrame, ak.Array"
@@ -1189,6 +1329,7 @@ class LH5Iterator(Iterator):
         keys: Collection[str] | str = None,
         processes: Executor | int = None,
         executor: Executor = None,
+        progress: progress.Progress | console.Console | bool = True,
         **hist_kwargs,
     ) -> Hist:
         """
@@ -1247,8 +1388,11 @@ class LH5Iterator(Iterator):
             to ``executor`` (if provided), or else do not parallelize
         executor:
             :class:`concurrent.futures.Executor` object for managing parallelism.
-            If ``None``, create a :class:`concurrent.futures.`ProcessPoolExecutor`
+            If ``None``, create a :class:`concurrent.futures.rocessPoolExecutor`
             with number of processes equal to ``processes``.
+        progress:
+            if ``True`` draw progress bar; can also provide an existing rich ``Progress``
+            or ``Console`` object
         hist_kwargs:
             additional keyword arguments for constructing :class:`hist.Hist`.
         """
@@ -1267,15 +1411,17 @@ class LH5Iterator(Iterator):
         elif isinstance(where, str):
             where = _table_query(where, "ak", None)
 
-        h = self.map(
-            where,
-            processes=processes,
-            executor=executor,
-            aggregate=_hist_filler(keys),
-            init=h,
-        )
-        if isinstance(h, Iterator):
-            h = sum(h)
+        with MapProgress(processes, progress) if progress else nullcontext() as prog:
+            h = self.map(
+                where,
+                processes=processes,
+                executor=executor,
+                aggregate=_hist_filler(keys),
+                init=h,
+                progress_queue=prog.queue if prog else None,
+            )
+            if isinstance(h, Iterator):
+                h = sum(h)
 
         if isinstance(ax, Hist):
             ax += h
@@ -1293,13 +1439,50 @@ def _append_copy(list, val):
     list.append(deepcopy(val))
 
 
-def _map_helper(fun, aggregator, init, begin, terminate, it):
+def _map_helper(
+    fun,
+    aggregator,
+    init,
+    begin,
+    terminate,
+    it,
+    i_job: int,
+    *,
+    progress_queue: Queue = None,
+):
     "Helper for executing int, begin and terminate functions when calling map"
+    if progress_queue is not None:
+        progress_queue.put(
+            {
+                "task_id": i_job,
+                "total": it.n_datasets,
+                "completed": 0.0,
+                "entries": 0,
+                "status": "Initializing",
+                "finished": False,
+            }
+        )
+
     if begin:
         begin(it)
 
     aggregate = init
     for tab in it:
+        if progress_queue is not None:
+            i_ds = np.searchsorted(it.entry_map, it.current_i_entry, "right")
+            progress_queue.put(
+                {
+                    "task_id": i_job,
+                    "total": it.n_datasets,
+                    "completed": i_ds
+                    + (it.current_i_entry - it._get_ds_cumentries(i_ds - 1))
+                    / (it._get_ds_cumentries(i_ds) - it._get_ds_cumentries(i_ds - 1)),
+                    "entries": it.current_i_entry,
+                    "status": "Processing",
+                    "finished": False,
+                }
+            )
+
         result = fun(tab, it)
 
         if aggregate is None:
@@ -1310,8 +1493,32 @@ def _map_helper(fun, aggregator, init, begin, terminate, it):
             if res is not None:
                 aggregate = res
 
+    if progress_queue is not None:
+        progress_queue.put(
+            {
+                "task_id": i_job,
+                "total": it.n_datasets,
+                "completed": it.n_datasets,
+                "entries": it._get_ds_cumentries(it.n_datasets),
+                "status": "Terminating",
+                "finished": False,
+            }
+        )
+
     if terminate:
         terminate(it)
+
+    if progress_queue is not None:
+        progress_queue.put(
+            {
+                "task_id": i_job,
+                "total": it.n_datasets,
+                "completed": it.n_datasets,
+                "entries": it._get_ds_cumentries(it.n_datasets),
+                "status": "Finished",
+                "finished": True,
+            }
+        )
 
     return aggregate
 
@@ -1331,18 +1538,22 @@ class _table_query:
 
     def __call__(self, tab, _):
         "Evaluate selection and return selected elements"
-        args = {f: a.view_as("ak", with_units=True) for f, a in tab.items()}
+        args = {f: a.view_as("ak", with_units=False) for f, a in tab.items()}
         if self.fields is not None:
             for k, v in self.fields.items():
                 if v is not None:
-                    args[v] = tab[k].view_as("ak", with_units=True)
+                    args[v] = tab[k].view_as("ak", with_units=False)
 
-        mask = eval(
-            self.expr,
-            {"np": np, "numpy": np, "ak": ak, "awkward": ak},
-            args,
-        )
-        ret = tab[mask]
+        if self.expr:
+            mask = eval(
+                self.expr,
+                {"np": np, "numpy": np, "ak": ak, "awkward": ak},
+                args,
+            )
+            ret = tab[mask]
+        else:
+            ret = tab
+
         if self.fields is not None:
             ret = Table(
                 {(k if f is None else f): ret[k] for k, f in self.fields.items()}
@@ -1350,7 +1561,7 @@ class _table_query:
 
         if self.library is None:
             return ret
-        return ret.view_as(self.library, with_units=True)
+        return ret.view_as(self.library, with_units=False)
 
 
 class _hist_filler:
@@ -1385,3 +1596,92 @@ class _hist_filler:
         else:
             msg = "data returned by where is not compatible with hist. Must be a 1d or 2d numpy array, a list of arrays, or a mapping from str to array"
             raise ValueError(msg)
+
+
+class MapProgress(Thread):
+    """Helper for tracking progress of threads in map
+
+    Basic Usage::
+
+        with MapProgress(task_list) as prog:
+            iter.map(..., progress_queue = prog.queue)
+    """
+
+    def __init__(
+        self,
+        tasks: list | int,
+        prog: progress.Progress | console.Console = None,
+        update_period: float = 0.1,
+    ):
+        """
+        tasks:
+            list of descriptions to prepend to progress bars. Can also provide the number of
+            tasks, in which case description will be set to "#i"
+        progress:
+            rich Progress or Console object to add bars to. Use to customize the bar.
+        update_period:
+            frequency in s to update progress bars.
+        """
+        if isinstance(prog, progress.Progress):
+            self.progress = prog
+        else:
+            self.progress = progress.Progress(
+                progress.TextColumn("{task.description}: {task.fields[status]}"),
+                progress.BarColumn(),
+                progress.TaskProgressColumn(),
+                progress.TextColumn(
+                    "{task.completed:.1f}/{task.total} ds, {task.fields[entries]} rows"
+                ),
+                progress.TimeElapsedColumn(),
+                progress.TimeRemainingColumn(compact=True),
+                console=prog if isinstance(prog, console.Console) else None,
+                auto_refresh=False,
+            )
+
+        if isinstance(tasks, int):
+            tasks = [f"#{i}" for i in range(tasks)]
+        elif isinstance(tasks, str):
+            tasks = [tasks]
+        elif tasks is None:
+            tasks = [":"]
+        for desc in tasks:
+            self.progress.add_task(
+                desc, total=None, completed=0.0, finished=False, status="", entries=0
+            )
+        self.update_period = update_period
+
+        self.manager = Manager()
+        self.queue = self.manager.Queue()
+        self.done = Event()
+        super().__init__(daemon=True)
+
+    def run(self):
+        self.progress.start()
+
+        # update every update_period s
+        while not self.done.wait(self.update_period):
+            while True:
+                try:
+                    progress_info = self.queue.get(block=False)
+                except Empty:
+                    break
+                self.progress.update(**progress_info)
+            self.progress.refresh()
+
+        # one final update to make sure we get all the way to 100%
+        while True:
+            try:
+                progress_info = self.queue.get(block=False)
+            except Empty:
+                break
+            self.progress.update(**progress_info)
+        self.progress.refresh()
+        self.progress.stop()
+
+    def __enter__(self) -> MapProgress:
+        self.start()
+        return self
+
+    def __exit__(self, *_) -> None:
+        self.done.set()
+        self.join()
