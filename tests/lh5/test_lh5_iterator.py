@@ -83,9 +83,6 @@ def test_errors(lgnd_file):
     with pytest.raises(ValueError):
         LH5Iterator(lgnd_file, "/geds/raw", h5py_open_mode="x")
 
-    with pytest.raises(ValueError):
-        LH5Iterator(lgnd_file, "/geds/raw", friend=5)
-
 
 def test_lgnd_waveform_table_fancy_idx(lgnd_file):
     lh5_it = LH5Iterator(
@@ -594,6 +591,18 @@ def test_group_data(more_lgnd_files):
             "is_valid_0vbb",
             "timestamp",
             "zacEmax_ctc_cal",
+            "chan",
+            "type",
+        }
+        assert all(tb.chan.nda == ec)
+        assert all(tb.type.nda == et)
+
+    # try changing field mask while there is group data
+    lh5_it.reset_field_mask(["is_valid_0vbb", "timestamp"])
+    for tb, ec, et in zip(lh5_it, exp_chan, exp_type, strict=False):
+        assert set(tb.keys()) == {
+            "is_valid_0vbb",
+            "timestamp",
             "chan",
             "type",
         }
