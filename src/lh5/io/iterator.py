@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Collection, Iterator, Mapping
 from concurrent.futures import Executor, ProcessPoolExecutor
-from contextlib import nullcontext
+from contextlib import ExitStack
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
@@ -1129,12 +1129,10 @@ class LH5Iterator(Iterator):
             function with the signature ``fun(it: LH5Iterator)`` that is run after
             we finish looping through a chunk of the iterator
         processes:
-            number of processes. If ``None``, use number equal to threads available
-            to ``executor`` (if provided), or else do not parallelize
+            number of processes to use if executor is provided. If ``None``, use
+            all available processes/threads.
         executor:
             :class:`concurrent.futures.Executor` object for managing parallelism.
-            If ``None``, create a :class:`concurrent.futures.ProcessPoolExecutor`
-            with number of processes equal to ``processes``.
         progress_queue:
             :class:`multiprocessing.Queue` object to which progress information will be
             communicated back to main process. Returns a mapping with keys:
@@ -1153,23 +1151,20 @@ class LH5Iterator(Iterator):
             init = []
             aggregate = _append_copy
 
-        if processes is None:
-            if isinstance(executor, Executor):
-                processes = executor._max_workers
-            else:
-                return _map_helper(
-                    fun,
-                    aggregate,
-                    init,
-                    begin,
-                    terminate,
-                    self,
-                    job_id,
-                    progress_queue=progress_queue,
-                )
-
         if executor is None:
-            executor = ProcessPoolExecutor(processes)
+            return _map_helper(
+                fun,
+                aggregate,
+                init,
+                begin,
+                terminate,
+                self,
+                job_id,
+                progress_queue=progress_queue,
+            )
+
+        if processes is None:
+            processes = executor._max_workers
 
         it_pool = self._generate_workers(processes)
 
@@ -1271,7 +1266,19 @@ class LH5Iterator(Iterator):
 
         test = where(self.lh5_buffer, self)
 
-        with MapProgress(processes, progress) if progress else nullcontext() as prog:
+        with ExitStack() as stack:
+            prog = (
+                stack.enter_context(MapProgress(processes, progress))
+                if progress
+                else None
+            )
+
+            if processes is None and isinstance(executor, Executor):
+                processes = executor._max_workers
+
+            if executor is None and isinstance(processes, int):
+                executor = stack.enter_context(ProcessPoolExecutor(processes))
+
             pq = prog.queue if prog else None
             if isinstance(test, LGDOCollection):
                 it = self.map(
@@ -1415,7 +1422,19 @@ class LH5Iterator(Iterator):
         elif isinstance(where, str):
             where = _table_query(where, "ak", None)
 
-        with MapProgress(processes, progress) if progress else nullcontext() as prog:
+        with ExitStack() as stack:
+            prog = (
+                stack.enter_context(MapProgress(processes, progress))
+                if progress
+                else None
+            )
+
+            if processes is None and isinstance(executor, Executor):
+                processes = executor._max_workers
+
+            if executor is None and isinstance(processes, int):
+                executor = stack.enter_context(ProcessPoolExecutor(processes))
+
             h = self.map(
                 where,
                 processes=processes,
