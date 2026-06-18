@@ -1603,17 +1603,48 @@ class _hist_filler:
             hist.fill(data)
         elif isinstance(data, np.ndarray) and len(data.shape) == 2:
             hist.fill(*data)
-        elif isinstance(data, (pd.DataFrame, Mapping)):
+        elif isinstance(data, pd.DataFrame):
             if self.keys is not None:
-                hist.fill(*[data[k] for k in self.keys])
+                hist.fill(*[data.eval(k) for k in self.keys])
+            else:
+                hist.fill(**data)
+        elif isinstance(data, Mapping):
+            if self.keys is not None:
+                hist.fill(
+                    *[
+                        eval(
+                            k,
+                            {
+                                "np": np,
+                                "numpy": np,
+                                "pd": pd,
+                                "pandas": pd,
+                                "ak": ak,
+                                "awkward": ak,
+                            },
+                            data,
+                        )
+                        for k in self.keys
+                    ]
+                )
             else:
                 hist.fill(**data)
         elif isinstance(data, ak.Array):
-            # TODO: handle nested ak arrays
             if self.keys is not None:
-                hist.fill(*[data[k] for k in self.keys])
+                hist.fill(
+                    *[
+                        ak.ravel(
+                            eval(
+                                k,
+                                {"np": np, "numpy": np, "ak": ak, "awkward": ak},
+                                {f: data[f] for f in data.fields},
+                            )
+                        )
+                        for k in self.keys
+                    ]
+                )
             else:
-                hist.fill(*[data[f] for f in data.fields])
+                hist.fill(*[ak.ravel(data[f]) for f in data.fields])
         elif isinstance(data, Collection):
             hist.fill(*data)
         else:
