@@ -946,6 +946,7 @@ def test_hist(more_lgnd_files):
     yedges[0] *= 0.99
     yedges[-1] *= 1.01
 
+    # construct hist from query returning LGDOobj
     h_lgdo = lh5_it.hist(
         [axis.Variable(xedges), axis.Variable(yedges)],
         where=query_lgdo,
@@ -960,6 +961,7 @@ def test_hist(more_lgnd_files):
     )
     assert np.all(np.array(h_lgdo_mp) == h_exp)
 
+    # construct hist from query returning pandas DataFrame
     h_pd = lh5_it.hist(
         [axis.Variable(xedges), axis.Variable(yedges)],
         where=query_pd,
@@ -974,6 +976,7 @@ def test_hist(more_lgnd_files):
     )
     assert np.all(np.array(h_pd_mp) == h_exp)
 
+    # construct hist from query returning awkward array
     h_ak = lh5_it.hist(
         [axis.Variable(xedges), axis.Variable(yedges)],
         where=query_ak,
@@ -988,6 +991,7 @@ def test_hist(more_lgnd_files):
     )
     assert np.all(np.array(h_ak_mp) == h_exp)
 
+    # construct hist from query returning numpy array
     h_np = lh5_it.hist(
         [axis.Variable(yedges)],
         where=query_np,
@@ -1002,6 +1006,7 @@ def test_hist(more_lgnd_files):
     )
     assert np.all(np.array(h_np_mp) == np.sum(h_exp, axis=0))
 
+    # construct hist from string query
     h_pd_str = lh5_it.hist(
         [axis.Variable(xedges), axis.Variable(yedges)],
         where="zacEmax_ctc_cal>200",
@@ -1015,6 +1020,21 @@ def test_hist(more_lgnd_files):
         processes=2,
     )
     assert np.all(np.array(h_pd_str_mp) == h_exp)
+
+    # construct hist from string query using expressions for keys
+    h_pd_expr = lh5_it.hist(
+        [axis.Variable(xedges), axis.Variable(yedges)],
+        where="zacEmax_ctc_cal>200",
+        keys=[f"timestamp + {xedges[1]}", f"zacEmax_ctc_cal + {yedges[1]}"],
+    )
+    assert np.all(np.array(h_pd_expr)[2:-1, 2:-1] == h_exp[1:-2, 1:-2])
+    h_pd_expr_mp = lh5_it.hist(
+        [axis.Variable(xedges), axis.Variable(yedges)],
+        where="zacEmax_ctc_cal>200",
+        keys=[f"timestamp + {xedges[1]}", f"zacEmax_ctc_cal + {yedges[1]}"],
+        processes=2,
+    )
+    assert np.all(np.array(h_pd_expr_mp)[2:-1, 2:-1] == h_exp[1:-2, 1:-2])
 
 
 def test_progress_bar(more_lgnd_files):
