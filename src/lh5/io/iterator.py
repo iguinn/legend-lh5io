@@ -1204,6 +1204,11 @@ class LH5Iterator(Iterator):
 
         Returns the selected data as a single table in one of several formats.
 
+        .. danger::
+
+            This function uses :func:`eval` to evaluate string expressions. Do not
+            use with untrusted input, as this can lead to arbitrary code execution.
+
         Examples
         --------
         Query data using a string selection::
@@ -1346,6 +1351,11 @@ class LH5Iterator(Iterator):
         """
         Fill a histogram from data produced by a query selecting on ``where``. If
         ``where`` is ``None``, fill with all data fetched by iterator.
+
+        .. danger::
+
+            This function uses :func:`eval` to evaluate string expressions. Do not
+            use with untrusted input, as this can lead to arbitrary code execution.
 
         Examples
         --------
