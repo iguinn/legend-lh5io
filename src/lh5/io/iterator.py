@@ -576,8 +576,9 @@ class LH5Iterator(Iterator):
         self.current_i_entry = i_entry
 
         for friend in self.friend:
-            friend.read(i_entry)
+            friend.read(i_entry, n_entries)
 
+            # check if entries in all datasets to current are all equal
             if (
                 self.safe_mode
                 and self._get_ds_cumentries(i_ds) != friend._get_ds_cumentries(i_ds)
