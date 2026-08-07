@@ -450,6 +450,8 @@ class LH5Iterator(Iterator):
             fcl = self.ds_map[i_start - 1] if i_start > 0 else 0
 
             for i in range(i_start, i_ds + 1):
+                if i >= self.n_datasets:
+                    break
                 fcl += self.lh5_st.read_n_rows(self.get_group(i), self.get_file(i))
                 self.ds_map[i] = fcl
         return fcl
@@ -484,7 +486,7 @@ class LH5Iterator(Iterator):
 
     def get_ds_entrylist(self, i_ds: int) -> np.ndarray:
         """Helper to get entry list for dataset"""
-        if i_ds < 0 or i_ds > self.n_datasets:
+        if i_ds < 0 or i_ds >= self.n_datasets:
             msg = f"dataset index {i_ds} out of range"
             raise IndexError(msg)
 
@@ -641,6 +643,8 @@ class LH5Iterator(Iterator):
                 if size_in_bytes > 0:
                     buffer_len = int(buffer_len / (size_in_bytes * ureg.B))
                     break
+            if isinstance(buffer_len, ureg.Quantity):
+                buffer_len = int(buffer_len / ureg.B)
 
         self._buffer_len = buffer_len
         for fr in self.friend:
@@ -1016,11 +1020,11 @@ class LH5Iterator(Iterator):
 
     def map(
         self,
-        fun: Callable[Table, LH5Iterator, Any],
+        fun: Callable[[Table, LH5Iterator], Any],
         aggregate: Callable = None,
         init: Any = None,
-        begin: Callable[LH5Iterator] = None,
-        terminate: Callable[LH5Iterator] = None,
+        begin: Callable[[LH5Iterator], None] = None,
+        terminate: Callable[[LH5Iterator], None] = None,
         processes: int = None,
         executor: Executor = None,
         progress_queue: Queue = None,
