@@ -423,7 +423,7 @@ class LH5Iterator(Iterator):
                     val = np.iinfo(dtype).max
                 elif dtype.kind == "i":
                     val = np.iinfo(dtype).min
-                elif dtype.kind in ("f", "S"):
+                elif dtype.kind in ("f", "c"):
                     val = np.nan
                 elif dtype.kind in ("S", "T", "U"):
                     val = ""
