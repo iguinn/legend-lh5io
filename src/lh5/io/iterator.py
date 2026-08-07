@@ -8,8 +8,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
 from itertools import chain
-from multiprocessing import Manager, Queue
-from queue import Empty
+from queue import Empty, Queue
 from threading import Event, Thread
 from typing import Any
 
@@ -1278,17 +1277,17 @@ class LH5Iterator(Iterator):
         test = where(self.lh5_buffer, self)
 
         with ExitStack() as stack:
-            prog = (
-                stack.enter_context(MapProgress(processes, progress))
-                if progress
-                else None
-            )
-
             if processes is None and isinstance(executor, Executor):
                 processes = executor._max_workers
 
             if executor is None and isinstance(processes, int):
                 executor = stack.enter_context(ProcessPoolExecutor(processes))
+
+            prog = (
+                stack.enter_context(MapProgress(processes, executor, progress))
+                if progress
+                else None
+            )
 
             pq = prog.queue if prog else None
             if isinstance(test, LGDOCollection):
@@ -1680,6 +1679,7 @@ class MapProgress(Thread):
     def __init__(
         self,
         tasks: list | int,
+        executor: Executor,
         prog: progress.Progress | console.Console = None,
         update_period: float = 0.1,
     ):
@@ -1722,8 +1722,26 @@ class MapProgress(Thread):
             )
         self.update_period = update_period
 
-        self.manager = Manager()
-        self.queue = self.manager.Queue()
+        self.manager = None
+        self.queue = None
+        if executor is None:
+            self.queue = Queue()
+        elif type(executor).__name__ == "ProcessPoolExecutor":
+            import multiprocessing  # noqa: PLC0415
+
+            self.manager = multiprocessing.Manager()
+            self.queue = self.manager.Queue()
+        elif type(executor).__name__ == "InterpreterPoolExecutor":
+            self.manager = None
+            from concurrent import interpreters  # noqa: PLC0415
+
+            self.queue = interpreters.create_queue()
+        elif type(executor).__name__ == "ThreadPoolExecutor":
+            self.queue = Queue()
+        else:
+            log.warning(
+                f"Cannot pass messages from {type(executor).__name__} to progress bar. Progress will not be shown."
+            )
         self.done = Event()
         super().__init__(daemon=True)
 
@@ -1735,7 +1753,7 @@ class MapProgress(Thread):
             while True:
                 try:
                     progress_info = self.queue.get(block=False)
-                except Empty:
+                except (AttributeError, Empty):
                     break
                 self.progress.update(**progress_info)
             self.progress.refresh()
@@ -1744,7 +1762,7 @@ class MapProgress(Thread):
         while True:
             try:
                 progress_info = self.queue.get(block=False)
-            except Empty:
+            except (AttributeError, Empty):
                 break
             self.progress.update(**progress_info)
         self.progress.refresh()
