@@ -359,7 +359,8 @@ class LH5Iterator(Iterator):
                     self.local_entry_list[i_ds] = np.nonzero(local_mask)[0]
 
     def __del__(self):
-        self.lh5_st.close()
+        if hasattr(self, "lh5_st") and self.lh5_st is not None:
+            self.lh5_st.close()
 
     def get_file(self, i_ds: int) -> str:
         """Get file name for dataset i_ds"""
