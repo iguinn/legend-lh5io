@@ -1164,7 +1164,13 @@ class LH5Iterator(Iterator):
             )
 
         if processes is None:
-            processes = executor._max_workers
+            if hasattr(executor, "_max_workers"):
+                processes = executor._max_workers
+            elif hasattr(executor, "_threads"):
+                processes = len(executor._threads)
+            else:
+                msg = f"Must explicitly provide number of processes for {type(executor).__name__}"
+                raise ValueError(msg)
 
         it_pool = self._generate_workers(processes)
 
