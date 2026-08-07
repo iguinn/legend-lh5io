@@ -329,6 +329,8 @@ class LH5Iterator(Iterator):
         self.n_entries = n_entries
         self.current_i_entry = 0
         self.next_i_entry = 0
+        self.current_local_entries = np.empty(0, "q")
+        self.current_global_entries = np.empty(0, "q")
 
         # List of entry indices from each file
         self.local_entry_list = None
@@ -526,6 +528,10 @@ class LH5Iterator(Iterator):
             msg = "n_entries cannot be larger than buffer_len"
             raise ValueError(msg)
 
+        if len(self.current_local_entries) < n_entries:
+            self.current_local_entries = np.empty(n_entries, "q")
+            self.current_global_entries = np.empty(n_entries, "q")
+
         # if dataset hasn't been opened yet, search through datasets
         # sequentially until we find the right one
         i_ds = np.searchsorted(self.entry_map, i_entry, "right")
@@ -565,6 +571,23 @@ class LH5Iterator(Iterator):
                     min(n_entries, self._get_ds_cumentries(i_ds) - i_entry)
                 )
 
+            if local_idx is None:
+                self.current_local_entries[buf_start : len(self.lh5_buffer)] = (
+                    np.arange(
+                        local_i_entry, local_i_entry + len(self.lh5_buffer) - buf_start
+                    )
+                )
+            else:
+                self.current_local_entries[buf_start : len(self.lh5_buffer)] = (
+                    local_idx[
+                        local_i_entry : local_i_entry + len(self.lh5_buffer) - buf_start
+                    ]
+                )
+            self.current_global_entries[buf_start : len(self.lh5_buffer)] = (
+                self.current_local_entries[buf_start : len(self.lh5_buffer)]
+                + self._get_ds_cumlen(i_ds - 1)
+            )
+
             if self.group_data is not None:
                 data = self.get_group_data(i_ds)
                 for f in data.fields:
@@ -574,6 +597,13 @@ class LH5Iterator(Iterator):
             local_i_entry = 0
 
         self.current_i_entry = i_entry
+        if len(self.current_local_entries) > len(self.lh5_buffer):
+            self.current_local_entries = np.resize(
+                self.current_local_entries, len(self.lh5_buffer)
+            )
+            self.current_global_entries = np.resize(
+                self.current_global_entries, len(self.lh5_buffer)
+            )
 
         for friend in self.friend:
             friend.read(i_entry, n_entries)
@@ -818,64 +848,6 @@ class LH5Iterator(Iterator):
 
         if warn_missing and len(remaining_fields) > 0:
             log.warning(f"Fields {remaining_fields} in field mask were not found")
-
-    @property
-    def current_local_entries(self) -> NDArray[int]:
-        """Return list of local dataset entries in buffer"""
-        cur_entries = np.zeros(len(self.lh5_buffer), dtype="int32")
-        i_ds = np.searchsorted(self.entry_map, self.current_i_entry, "right")
-        ds_start = self._get_ds_cumentries(i_ds - 1)
-        i_local = self.current_i_entry - ds_start
-        i = 0
-
-        while i < len(cur_entries):
-            # number of entries to read from this file
-            ds_end = self._get_ds_cumentries(i_ds)
-            n = min(ds_end - ds_start - i_local, len(cur_entries) - i)
-            entries = self.get_ds_entrylist(i_ds)
-
-            if entries is None:
-                cur_entries[i : i + n] = np.arange(i_local, i_local + n)
-            else:
-                cur_entries[i : i + n] = entries[i_local : i_local + n]
-
-            i_ds += 1
-            ds_start = ds_end
-            i_local = 0
-            i += n
-
-        return cur_entries
-
-    @property
-    def current_global_entries(self) -> NDArray[int]:
-        """Return list of global file entries in buffer"""
-        cur_entries = np.zeros(len(self.lh5_buffer), dtype="int32")
-        i_ds = np.searchsorted(self.entry_map, self.current_i_entry, "right")
-        ds_start = self._get_ds_cumentries(i_ds - 1)
-        i_local = self.current_i_entry - ds_start
-        i = 0
-
-        while i < len(cur_entries):
-            # number of entries to read from this file
-            ds_end = self._get_ds_cumentries(i_ds)
-            n = min(ds_end - ds_start - i_local, len(cur_entries) - i)
-            entries = self.get_ds_entrylist(i_ds)
-
-            if entries is None:
-                cur_entries[i : i + n] = self._get_ds_cumlen(i_ds - 1) + np.arange(
-                    i_local, i_local + n
-                )
-            else:
-                cur_entries[i : i + n] = (
-                    self._get_ds_cumlen(i_ds - 1) + entries[i_local : i_local + n]
-                )
-
-            i_ds += 1
-            ds_start = ds_end
-            i_local = 0
-            i += n
-
-        return cur_entries
 
     @property
     def current_files(self) -> NDArray[str]:
