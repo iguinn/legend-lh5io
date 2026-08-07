@@ -359,6 +359,9 @@ class LH5Iterator(Iterator):
                 for i_ds, local_mask in enumerate(entry_mask):
                     self.local_entry_list[i_ds] = np.nonzero(local_mask)[0]
 
+    def __del__(self):
+        self.lh5_st.close()
+
     def get_file(self, i_ds: int) -> str:
         """Get file name for dataset i_ds"""
         if i_ds < 0 or i_ds >= self.n_datasets:
@@ -723,11 +726,7 @@ class LH5Iterator(Iterator):
             remaining_fields = set()
 
         elif isinstance(mask, Mapping):
-            for k, v in mask.items():
-                new_k = k.replace(".", "/")
-                if new_k != k:
-                    mask[new_k] = v
-                    del mask[k]
+            mask = {k.replace(".", "/"): v for k, v in mask.items()}
 
             self.field_mask = {
                 field: mask[field] for field in self.available_fields if field in mask

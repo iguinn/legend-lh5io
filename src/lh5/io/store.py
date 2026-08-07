@@ -32,9 +32,9 @@ class LH5Store:
     Examples
     --------
     >>> from lh5 import LH5Store
-    >>> store = LH5Store()
-    >>> obj = store.read("/geds/waveform", "file.lh5")
-    >>> type(obj)
+    >>> with LH5Store() as store:
+    >>>     obj = store.read("/geds/waveform", "file.lh5")
+    >>>     type(obj)
     lgdo.waveformtable.WaveformTable
     """
 
@@ -159,7 +159,7 @@ class LH5Store:
 
         if self.keep_open:
             if isinstance(self.keep_open, int) and len(self.files) >= self.keep_open:
-                self.files.popitem(last=False)
+                self.files.popitem(last=False)[1].close()
             self.files[lh5_file] = h5f
 
         return h5f
@@ -295,6 +295,29 @@ class LH5Store:
             write_start=write_start,
             **h5py_kwargs,
         )
+
+    def close(self, lh5_file: str | None = None) -> None:
+        """Close a file in the store and remove from cache.
+
+        If ``lh5_file`` is ``None``, close all files.
+        """
+
+        if lh5_file is None:
+            for h5f in self.files.values():
+                h5f.close()
+            self.files.clear()
+        else:
+            lh5_file = str(Path(lh5_file))
+            if lh5_file in self.files:
+                self.files[lh5_file].close()
+                del self.files[lh5_file]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+        return False
 
     def read_n_rows(self, name: str, lh5_file: str | Path | h5py.File) -> int | None:
         """Look up the number of rows in an Array-like object called `name` in `lh5_file`.
