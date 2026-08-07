@@ -336,7 +336,7 @@ class LH5Iterator(Iterator):
         self.global_entry_list = None
         if entry_list is not None:
             entry_list = list(entry_list)
-            if isinstance(entry_list[0], int):
+            if len(entry_list) > 0 and isinstance(entry_list[0], (int, np.integer)):
                 self.local_entry_list = [None] * self.n_datasets
                 self.global_entry_list = np.array(entry_list, "q")
                 self.global_entry_list.sort()
