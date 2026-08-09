@@ -1113,11 +1113,14 @@ class LH5Iterator(Iterator):
         executor_mode:
             mode for transferring data between threads/processes, based on executor. This
             affects how aggregators, and internal states if objects are passed. Options:
+
             - process: multiprocessing-like; the executor is assumed to handle inter-process
               communication (likely through pickling), and objects are assumed to be isolated
             - thread: threading-like; memory is shared between threads, so we explicitly
               copy data before sending to threads to ensure isolation
-            - ``None``: default; use process for ProcessPoolExecutor and
+            - ``None``: default; use process for ProcessPoolExecutor and InterpreterPoolExecutor,
+              and thread for ThreadPoolExecutor; must be explicit for others!
+
         progress_queue:
             :class:`multiprocessing.Queue` object to which progress information will be
             communicated back to main process. Returns a mapping with keys:
@@ -1277,11 +1280,14 @@ class LH5Iterator(Iterator):
         executor_mode:
             mode for transferring data between threads/processes, based on executor. This
             affects how aggregators, and internal states if objects are passed. Options:
+
             - process: multiprocessing-like; the executor is assumed to handle inter-process
               communication (likely through pickling), and objects are assumed to be isolated
             - thread: threading-like; memory is shared between threads, so we explicitly
               copy data before sending to threads to ensure isolation
-            - ``None``: default; use process for ProcessPoolExecutor and
+            - ``None``: default; use process for ProcessPoolExecutor and InterpreterPoolExecutor,
+              and thread for ThreadPoolExecutor; must be explicit for others!
+
         library:
             library to convert the columns to when using a string expression for ``where``.
             See :meth:`Table.eval`.
@@ -1442,11 +1448,14 @@ class LH5Iterator(Iterator):
         executor_mode:
             mode for transferring data between threads/processes, based on executor. This
             affects how aggregators, and internal states if objects are passed. Options:
+
             - process: multiprocessing-like; the executor is assumed to handle inter-process
               communication (likely through pickling), and objects are assumed to be isolated
             - thread: threading-like; memory is shared between threads, so we explicitly
               copy data before sending to threads to ensure isolation
-            - ``None``: default; use process for ProcessPoolExecutor and
+            - ``None``: default; use process for ProcessPoolExecutor and InterpreterPoolExecutor,
+              and thread for ThreadPoolExecutor; must be explicit for others!
+
         progress:
             if ``True`` draw progress bar; can also provide an existing rich ``Progress``
             or ``Console`` object
