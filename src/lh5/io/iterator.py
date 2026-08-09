@@ -10,7 +10,7 @@ from functools import partial
 from itertools import chain
 from queue import Empty, Queue
 from threading import Event, Thread
-from typing import Any
+from typing import Any, Literal
 
 import awkward as ak
 import numpy as np
@@ -1027,6 +1027,7 @@ class LH5Iterator(Iterator):
         terminate: Callable[[LH5Iterator], None] = None,
         processes: int = None,
         executor: Executor = None,
+        executor_mode: Literal["process", "thread", None] = None,
         progress_queue: Queue = None,
         job_id: int | Collection[int] = 0,
     ) -> Iterator[Any]:
@@ -1109,6 +1110,14 @@ class LH5Iterator(Iterator):
             all available processes/threads.
         executor:
             :class:`concurrent.futures.Executor` object for managing parallelism.
+        executor_mode:
+            mode for transfering data between threads/processes, based on executor. This
+            affects how aggregators, and internal states if objects are passed. Options:
+            - process: multiprocessing-like; the executor is assumed to handle inter-process
+              communciation (likely through pickling), and objects are assumed to be isolated
+            - thread: threading-like; memory is shared between threads, so we explicitly
+              copy data before sending to threads to ensure isolation
+            - ``None``: default; use process for ProcessPoolExecutor and
         progress_queue:
             :class:`multiprocessing.Queue` object to which progress information will be
             communicated back to main process. Returns a mapping with keys:
@@ -1150,21 +1159,44 @@ class LH5Iterator(Iterator):
 
         it_pool = self._generate_workers(processes)
 
-        result = executor.map(
-            partial(
+        if executor_mode is None:
+            if type(executor).__name__ in ("ProcessPoolExecutor", "InterpreterPoolExecutor"):
+                executor_mode = "process"
+            elif type(executor).__name__ == "ThreadPoolExecutor":
+                executor_mode = "thread"
+            else:
+                msg = f"Could not deduce executor_mode for {type(executor).__name__}. Please specify"
+                raise ValueError(msg)
+
+        if executor_mode == "process":
+            result = executor.map(
+                partial(
+                    _map_helper,
+                    fun,
+                    aggregate,
+                    init,
+                    begin,
+                    terminate,
+                    progress_queue=progress_queue,
+                ),
+                it_pool,
+                job_id
+                if isinstance(job_id, Collection)
+                else range(job_id, job_id + processes),
+            )
+        elif executor_mode == "thread":
+            result = executor.map(
                 _map_helper,
-                fun,
-                aggregate,
-                init,
-                begin,
-                terminate,
-                progress_queue=progress_queue,
-            ),
-            it_pool,
-            job_id
-            if isinstance(job_id, Collection)
-            else range(job_id, job_id + processes),
-        )
+                [deepcopy(fun) for _ in range(processes)],
+                [deepcopy(aggregate) for _ in range(processes)],
+                [deepcopy(init) for _ in range(processes)],
+                [deepcopy(begin) for _ in range(processes)],
+                [deepcopy(terminate) for _ in range(processes)],
+                it_pool,
+                job_id
+                if isinstance(job_id, Collection)
+                else range(job_id, job_id + processes),
+            )
 
         # If no aggregator was given, chain iterators
         if aggregate is _append_copy:
@@ -1178,6 +1210,7 @@ class LH5Iterator(Iterator):
         fields: Collection[str] | Mapping[str, str | None] = None,
         processes: Executor | int = None,
         executor: Executor = None,
+        executor_mode: Literal["process", "thread", None] = None,
         library: str = None,
         progress: progress.Progress | console.Console | bool = True,
     ):
@@ -1238,6 +1271,14 @@ class LH5Iterator(Iterator):
             :class:`concurrent.futures.Executor` object for managing parallelism.
             If ``None``, create a :class:`concurrent.futures.ProcessPoolExecutor`
             with number of processes equal to ``processes``.
+        executor_mode:
+            mode for transfering data between threads/processes, based on executor. This
+            affects how aggregators, and internal states if objects are passed. Options:
+            - process: multiprocessing-like; the executor is assumed to handle inter-process
+              communciation (likely through pickling), and objects are assumed to be isolated
+            - thread: threading-like; memory is shared between threads, so we explicitly
+              copy data before sending to threads to ensure isolation
+            - ``None``: default; use process for ProcessPoolExecutor and
         library:
             library to convert the columns to when using a string expression for ``where``.
             See :meth:`Table.eval`.
@@ -1272,6 +1313,7 @@ class LH5Iterator(Iterator):
                     where,
                     processes=processes,
                     executor=executor,
+                    executor_mode=executor_mode,
                     aggregate=Table.append,
                     progress_queue=pq,
                 )
@@ -1327,6 +1369,7 @@ class LH5Iterator(Iterator):
         keys: Collection[str] | str = None,
         processes: Executor | int = None,
         executor: Executor = None,
+        executor_mode: Literal["process", "thread", None] = None,
         progress: progress.Progress | console.Console | bool = True,
         **hist_kwargs,
     ) -> Hist:
@@ -1393,6 +1436,14 @@ class LH5Iterator(Iterator):
             :class:`concurrent.futures.Executor` object for managing parallelism.
             If ``None``, create a :class:`concurrent.futures.ProcessPoolExecutor`
             with number of processes equal to ``processes``.
+        executor_mode:
+            mode for transfering data between threads/processes, based on executor. This
+            affects how aggregators, and internal states if objects are passed. Options:
+            - process: multiprocessing-like; the executor is assumed to handle inter-process
+              communciation (likely through pickling), and objects are assumed to be isolated
+            - thread: threading-like; memory is shared between threads, so we explicitly
+              copy data before sending to threads to ensure isolation
+            - ``None``: default; use process for ProcessPoolExecutor and
         progress:
             if ``True`` draw progress bar; can also provide an existing rich ``Progress``
             or ``Console`` object
@@ -1431,6 +1482,7 @@ class LH5Iterator(Iterator):
                 where,
                 processes=processes,
                 executor=executor,
+                executor_mode=executor_mode,
                 aggregate=_hist_filler(keys),
                 init=h,
                 progress_queue=prog.queue if prog else None,

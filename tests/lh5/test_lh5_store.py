@@ -26,6 +26,24 @@ def test_gimme_file(lgnd_file):
     with pytest.raises(FileNotFoundError):
         store.gimme_file("non-existent-file")
 
+def test_close_file(lgnd_file):
+    store = lh5.LH5Store(keep_open=True)
+
+    f = store.gimme_file(lgnd_file)
+    assert isinstance(f, h5py.File)
+    assert store.files[lgnd_file] == f
+    store.close(lgnd_file)
+    assert not f.id.valid
+    assert lgnd_file not in store.files
+
+    f = store.gimme_file(lgnd_file)
+    store.close()
+    assert not f.id.valid
+    assert lgnd_file not in store.files
+
+    with lh5.LH5Store(keep_open=True) as st:
+        f = st.gimme_file(lgnd_file)
+    assert not f.id.valid
 
 def test_gimme_group(lgnd_file, tmptestdir):
     f = h5py.File(lgnd_file)
