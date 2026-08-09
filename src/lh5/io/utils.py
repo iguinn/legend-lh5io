@@ -44,38 +44,52 @@ def read_n_rows(name: str, h5f: str | Path | h5py.File) -> int | None:
 
     Return ``None`` if `name` is a :class:`.Scalar` or a :class:`.Struct`.
     """
-    if not isinstance(h5f, h5py.File):
-        try:
-            h5f = h5py.File(h5f, "r", locking=False)
-        except (OSError, FileExistsError) as oe:
-            raise LH5DecodeError(oe, h5f, None) from oe
-
     try:
-        h5o = h5f[name].id
-    except KeyError as e:
-        msg = "not found"
-        raise LH5DecodeError(msg, h5f, name) from e
+        i_opened_file = False
+        if not isinstance(h5f, h5py.File):
+            try:
+                h5f = h5py.File(h5f, "r", locking=False)
+                i_opened_file = True
+            except (OSError, FileExistsError) as oe:
+                raise LH5DecodeError(oe, h5f) from oe
 
-    return _serializers.read.utils.read_n_rows(h5o, h5f.name, name)
+        try:
+            h5o = h5f[name].id
+        except KeyError as e:
+            msg = "not found"
+            raise LH5DecodeError(msg, h5f, name) from e
+
+        return _serializers.read.utils.read_n_rows(h5o, h5f.name, name)
+
+    finally:
+        if i_opened_file:
+            h5f.close()
 
 
 def read_size_in_bytes(name: str, h5f: str | Path | h5py.File) -> int | None:
     """Look up the size (in bytes) of an LGDO object in memory. Will crawl
     recursively through members of a Struct or Table.
     """
-    if not isinstance(h5f, h5py.File):
-        try:
-            h5f = h5py.File(h5f, "r", locking=False)
-        except (OSError, FileExistsError) as oe:
-            raise LH5DecodeError(oe, h5f) from oe
-
     try:
-        h5o = h5f[name].id
-    except KeyError as e:
-        msg = "not found"
-        raise LH5DecodeError(msg, h5f, name) from e
+        i_opened_file = False
+        if not isinstance(h5f, h5py.File):
+            try:
+                h5f = h5py.File(h5f, "r", locking=False)
+                i_opened_file = True
+            except (OSError, FileExistsError) as oe:
+                raise LH5DecodeError(oe, h5f) from oe
 
-    return _serializers.read.utils.read_size_in_bytes(h5o, h5f.name, name)
+        try:
+            h5o = h5f[name].id
+        except KeyError as e:
+            msg = "not found"
+            raise LH5DecodeError(msg, h5f, name) from e
+
+        return _serializers.read.utils.read_size_in_bytes(h5o, h5f.name, name)
+
+    finally:
+        if i_opened_file:
+            h5f.close()
 
 
 def get_h5_group(
