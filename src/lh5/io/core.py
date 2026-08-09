@@ -336,7 +336,7 @@ def write(
     """
 
     if (
-        isinstance(lh5_file, str)
+        isinstance(lh5_file, (str, Path))
         and not Path(lh5_file).is_file()
         and wo_mode in ("w", "write_safe", "of", "overwrite_file")
     ):

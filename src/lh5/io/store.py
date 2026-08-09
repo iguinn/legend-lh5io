@@ -91,7 +91,7 @@ class LH5Store:
     def gimme_file(
         self,
         lh5_file: str | Path | h5py.File,
-        mode: str = None,
+        mode: str | None = None,
         page_buffer: int = 0,
         **file_kwargs,
     ) -> h5py.File:
@@ -242,7 +242,7 @@ class LH5Store:
         group: str | h5py.Group = "/",
         start_row: int = 0,
         n_rows: int | None = None,
-        wo_mode: str = None,
+        wo_mode: str | None = None,
         write_start: int = 0,
         page_buffer: int = 0,
         **h5py_kwargs,
