@@ -6,6 +6,7 @@ HDF5 files.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
@@ -61,8 +62,11 @@ class LH5Store:
             :class:`h5py.File` documentation. If default_mode is ``"r"``, use
             ``"a"`` when calling `LH5Store.write`.
         """
-        base_path = str(Path(base_path)) if base_path != "" else ""
-        self.base_path = "" if base_path == "" else utils.expand_path(base_path)
+        self.base_path = Path(os.path.expandvars(base_path)).resolve()
+        if not self.base_path.exists():
+            msg = f"base path {self.base_path} does not exist"
+            raise FileNotFoundError(msg)
+
         self.keep_open = keep_open
         self.locking = locking
         self.files = OrderedDict()
@@ -117,17 +121,12 @@ class LH5Store:
             mode = self.default_mode
 
         if mode == "r":
-            lh5_file = utils.expand_path(lh5_file, base_path=self.base_path)
             file_kwargs["locking"] = self.locking
 
-        if lh5_file in self.files:
-            self.files.move_to_end(lh5_file)
-            return self.files[lh5_file]
-
-        if self.base_path != "":
-            full_path = Path(self.base_path) / lh5_file
-        else:
-            full_path = Path(lh5_file)
+        full_path = self.base_path.joinpath(lh5_file)
+        if full_path in self.files:
+            self.files.move_to_end(full_path)
+            return self.files[full_path]
 
         file_exists = full_path.exists()
         if mode != "r":
@@ -324,10 +323,10 @@ class LH5Store:
 
         Return ``None`` if it is a :class:`.Scalar` or a :class:`.Struct`.
         """
-        return utils.read_n_rows(name, self.gimme_file(lh5_file, "r"))
+        return utils.read_n_rows(name, self.gimme_file(lh5_file))
 
     def read_size_in_bytes(self, name: str, lh5_file: str | Path | h5py.File) -> int:
         """Look up the size (in bytes) of the object in memory. Will recursively
         crawl through all objects in a Struct or Table.
         """
-        return utils.read_size_in_bytes(name, self.gimme_file(lh5_file, "r"))
+        return utils.read_size_in_bytes(name, self.gimme_file(lh5_file))
