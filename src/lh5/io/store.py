@@ -253,8 +253,8 @@ class LH5Store:
         --------
         .core.write
         """
-        if wo_mode is None and self.default_mode in ["r", "read"]:
-            wo_mode = "a"
+        if wo_mode is None:
+            wo_mode = "a" if self.default_mode in ("r", "read") else self.default_mode
         if wo_mode == "write_safe":
             wo_mode = "w"
         if wo_mode == "append":
