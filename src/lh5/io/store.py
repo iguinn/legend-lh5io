@@ -157,7 +157,7 @@ class LH5Store:
             raise LH5DecodeError(oe, full_path) from oe
 
         if self.keep_open:
-            if isinstance(self.keep_open, int) and len(self.files) >= self.keep_open:
+            if self.keep_open is not True and len(self.files) >= self.keep_open:
                 self.files.popitem(last=False)[1].close()
             self.files[lh5_file] = h5f
 
