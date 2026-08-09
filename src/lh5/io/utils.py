@@ -6,37 +6,16 @@ import glob
 import logging
 import os
 import string
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import h5py
-from lgdo import types
 
 from . import _serializers
 from .exceptions import LH5DecodeError
 
 log = logging.getLogger(__name__)
-
-
-def get_buffer(
-    name: str,
-    lh5_file: str | Path | h5py.File | Sequence[str | Path | h5py.File],
-    size: int | None = None,
-    field_mask: Mapping[str, bool] | Sequence[str] | None = None,
-) -> types.LGDO:
-    """Returns an LGDO appropriate for use as a pre-allocated buffer.
-
-    Sets size to `size` if object has a size.
-    """
-    obj, _n_rows = _serializers._h5_read_lgdo(
-        lh5_file[name], n_rows=0, field_mask=field_mask
-    )
-
-    if hasattr(obj, "resize") and size is not None:
-        obj.resize(new_size=size)
-
-    return obj
 
 
 def read_n_rows(name: str, h5f: str | Path | h5py.File) -> int | None:
