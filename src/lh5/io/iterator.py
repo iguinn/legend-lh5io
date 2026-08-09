@@ -1111,10 +1111,10 @@ class LH5Iterator(Iterator):
         executor:
             :class:`concurrent.futures.Executor` object for managing parallelism.
         executor_mode:
-            mode for transfering data between threads/processes, based on executor. This
+            mode for transferring data between threads/processes, based on executor. This
             affects how aggregators, and internal states if objects are passed. Options:
             - process: multiprocessing-like; the executor is assumed to handle inter-process
-              communciation (likely through pickling), and objects are assumed to be isolated
+              communication (likely through pickling), and objects are assumed to be isolated
             - thread: threading-like; memory is shared between threads, so we explicitly
               copy data before sending to threads to ensure isolation
             - ``None``: default; use process for ProcessPoolExecutor and
@@ -1275,10 +1275,10 @@ class LH5Iterator(Iterator):
             If ``None``, create a :class:`concurrent.futures.ProcessPoolExecutor`
             with number of processes equal to ``processes``.
         executor_mode:
-            mode for transfering data between threads/processes, based on executor. This
+            mode for transferring data between threads/processes, based on executor. This
             affects how aggregators, and internal states if objects are passed. Options:
             - process: multiprocessing-like; the executor is assumed to handle inter-process
-              communciation (likely through pickling), and objects are assumed to be isolated
+              communication (likely through pickling), and objects are assumed to be isolated
             - thread: threading-like; memory is shared between threads, so we explicitly
               copy data before sending to threads to ensure isolation
             - ``None``: default; use process for ProcessPoolExecutor and
@@ -1440,10 +1440,10 @@ class LH5Iterator(Iterator):
             If ``None``, create a :class:`concurrent.futures.ProcessPoolExecutor`
             with number of processes equal to ``processes``.
         executor_mode:
-            mode for transfering data between threads/processes, based on executor. This
+            mode for transferring data between threads/processes, based on executor. This
             affects how aggregators, and internal states if objects are passed. Options:
             - process: multiprocessing-like; the executor is assumed to handle inter-process
-              communciation (likely through pickling), and objects are assumed to be isolated
+              communication (likely through pickling), and objects are assumed to be isolated
             - thread: threading-like; memory is shared between threads, so we explicitly
               copy data before sending to threads to ensure isolation
             - ``None``: default; use process for ProcessPoolExecutor and
