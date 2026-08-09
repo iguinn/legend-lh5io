@@ -1160,7 +1160,10 @@ class LH5Iterator(Iterator):
         it_pool = self._generate_workers(processes)
 
         if executor_mode is None:
-            if type(executor).__name__ in ("ProcessPoolExecutor", "InterpreterPoolExecutor"):
+            if type(executor).__name__ in (
+                "ProcessPoolExecutor",
+                "InterpreterPoolExecutor",
+            ):
                 executor_mode = "process"
             elif type(executor).__name__ == "ThreadPoolExecutor":
                 executor_mode = "thread"

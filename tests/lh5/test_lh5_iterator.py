@@ -829,13 +829,17 @@ def test_map(more_lgnd_files):
     # test multithreading
     with ThreadPoolExecutor(2) as thread_pool:
         with MapProgress(2, thread_pool) as prog:
-            map_mt = lh5_it.map(return_tb, processes=2, executor=thread_pool, progress_queue=prog.queue)
+            map_mt = lh5_it.map(
+                return_tb, processes=2, executor=thread_pool, progress_queue=prog.queue
+            )
             assert all(tb == tb_mt for tb, tb_mt in zip(lh5_it, map_mt, strict=True))
 
     # test multiprocessing
     with ProcessPoolExecutor(2) as process_pool:
         with MapProgress(2, process_pool) as prog:
-            map_mp = lh5_it.map(return_tb, processes=2, executor=process_pool, progress_queue=prog.queue)
+            map_mp = lh5_it.map(
+                return_tb, processes=2, executor=process_pool, progress_queue=prog.queue
+            )
             assert all(tb == tb_mp for tb, tb_mp in zip(lh5_it, map_mp, strict=True))
 
     # TODO: once numpy figures out InterpreterPoolProcessor, add a test for intepreter pool
