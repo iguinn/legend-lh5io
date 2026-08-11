@@ -30,6 +30,11 @@ class LH5Store:
     Class to represent a store of LEGEND HDF5 files. The two main methods
     implemented by the class are :meth:`read` and :meth:`write`.
 
+    ..important::
+        ``h5py`` file objects are not closed until all references are deleted.
+        It is strongly recommended to use the ``LH5Store`` as a context manager
+        to ensure that files are closed, and to not directly access ``h5py`` objects!
+
     Examples
     --------
     >>> from lh5 import LH5Store
