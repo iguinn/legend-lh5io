@@ -491,11 +491,10 @@ def write_view(
         datasets. **Note: `compression` ignored if compression is specified
         as an `obj` attribute.**
     """
-
-    if (
-        isinstance(lh5_file, str)
-        and not Path(lh5_file).is_file()
-        and wo_mode in ("w", "write_safe", "of", "overwrite_file")
+    wo_mode = normalize_womode(wo_mode)
+    if page_buffer > 0 and (
+        (isinstance(lh5_file, (str, Path)) and not Path(lh5_file).is_file())
+        or wo_mode in ("w", "of")
     ):
         h5py_kwargs.update(
             {

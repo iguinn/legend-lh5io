@@ -51,9 +51,10 @@ def _h5_write_view(
         raise LH5EncodeError(msg, lh5_file, group, name)
 
     # create/get the view
-    overwrite = wo_mode in ("o", "overwrite")
+    wo_mode = utils.normalize_womode(wo_mode)
+    overwrite = wo_mode == "o"
     group = utils.get_h5_group(group, lh5_file)
-    if wo_mode in ("w", "write_safe") and name in group:
+    if wo_mode == "w" and name in group:
         msg = f"can't overwrite '{name}' in wo_mode 'write_safe'"
         raise LH5EncodeError(msg, lh5_file, group, name)
     view = utils.get_h5_group(

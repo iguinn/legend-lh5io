@@ -308,27 +308,15 @@ class LH5Store:
         --------
         .core.write
         """
+        wo_mode = utils.normalize_womode(wo_mode)
         if wo_mode is None:
             wo_mode = self.default_mode
-            if wo_mode in ("r", "read") or (
-                wo_mode in ("of", "overwrite_file")
-                and str(self.base_path.joinpath(lh5_file)) in self.files
+            if wo_mode == "r" or (
+                wo_mode == "of" and str(self.base_path.joinpath(lh5_file)) in self.files
             ):
                 wo_mode = "a"
-        if wo_mode == "write_safe":
-            wo_mode = "w"
-        if wo_mode == "append":
-            wo_mode = "a"
-        if wo_mode == "overwrite":
-            wo_mode = "o"
-        if wo_mode == "overwrite_file":
-            wo_mode = "of"
+        if wo_mode == "of":
             write_start = 0
-        if wo_mode == "append_column":
-            wo_mode = "ac"
-        if wo_mode not in ["w", "a", "o", "of", "ac"]:
-            msg = f"unknown wo_mode '{wo_mode}'"
-            raise ValueError(msg)
 
         # "mode" is for the h5df.File and wo_mode is for this function
         # In hdf5, 'a' is really "modify" -- in addition to appending, you can
