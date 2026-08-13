@@ -1478,17 +1478,17 @@ class LH5Iterator(Iterator):
             where = _table_query(where, "ak", None)
 
         with ExitStack() as stack:
+            if executor is None and isinstance(processes, int):
+                executor = stack.enter_context(ProcessPoolExecutor(processes))
+
             prog = (
-                stack.enter_context(MapProgress(processes, progress))
+                stack.enter_context(MapProgress(processes, executor, progress))
                 if progress
                 else None
             )
 
             if processes is None and isinstance(executor, Executor):
                 processes = executor._max_workers
-
-            if executor is None and isinstance(processes, int):
-                executor = stack.enter_context(ProcessPoolExecutor(processes))
 
             h = self.map(
                 where,
