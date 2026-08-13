@@ -1739,7 +1739,7 @@ class MapProgress(Thread):
             self.progress = prog
         else:
             self.progress = progress.Progress(
-                progress.TextColumn("{task.description}: {task.fields[status]}"),
+                progress.TextColumn("{task.description:>5}: {task.fields[status]:<12}"),
                 progress.BarColumn(),
                 progress.TaskProgressColumn(),
                 progress.TextColumn(
