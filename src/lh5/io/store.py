@@ -75,23 +75,7 @@ class LH5Store:
         self.keep_open = keep_open
         self.locking = locking
         self.files = OrderedDict()
-
-        if default_mode == "read":
-            default_mode = "r"
-        if default_mode == "write_safe":
-            default_mode = "w"
-        if default_mode == "append":
-            default_mode = "a"
-        if default_mode == "overwrite":
-            default_mode = "o"
-        if default_mode == "overwrite_file":
-            default_mode = "of"
-        if default_mode == "append_column":
-            default_mode = "ac"
-        if default_mode not in ["r", "w", "a", "o", "of", "ac"]:
-            msg = f"unknown wo_mode '{default_mode}'"
-            raise ValueError(msg)
-        self.default_mode = default_mode
+        self.default_mode = utils.normalize_womode(default_mode)
 
     def gimme_file(
         self,
@@ -123,7 +107,15 @@ class LH5Store:
         lh5_file = str(Path(lh5_file))
 
         if mode is None:
-            mode = self.default_mode
+            if self.default_mode == "r":
+                mode = "r"
+            elif (
+                self.default_mode == "of"
+                and str(self.base_path.joinpath(lh5_file)) not in self.files
+            ):
+                mode = "w"
+            else:
+                mode = "a"
 
         if mode == "r":
             file_kwargs["locking"] = self.locking
@@ -149,13 +141,14 @@ class LH5Store:
         if mode != "r" and file_exists:
             log.debug(f"opening existing file {full_path} in mode '{mode}'")
 
-        if mode == "w":
+        if page_buffer > 0 and (not full_path.is_file() or mode == "w"):
             file_kwargs.update(
                 {
                     "fs_strategy": "page",
                     "fs_page_size": page_buffer,
                 }
             )
+
         try:
             h5f = h5py.File(full_path, mode, **file_kwargs)
         except (OSError, FileExistsError) as oe:
@@ -258,22 +251,15 @@ class LH5Store:
         --------
         .core.write
         """
+        wo_mode = utils.normalize_womode(wo_mode)
         if wo_mode is None:
-            wo_mode = "a" if self.default_mode in ("r", "read") else self.default_mode
-        if wo_mode == "write_safe":
-            wo_mode = "w"
-        if wo_mode == "append":
-            wo_mode = "a"
-        if wo_mode == "overwrite":
-            wo_mode = "o"
-        if wo_mode == "overwrite_file":
-            wo_mode = "of"
+            wo_mode = self.default_mode
+            if wo_mode == "r" or (
+                wo_mode == "of" and str(self.base_path.joinpath(lh5_file)) in self.files
+            ):
+                wo_mode = "a"
+        if wo_mode == "of":
             write_start = 0
-        if wo_mode == "append_column":
-            wo_mode = "ac"
-        if wo_mode not in ["w", "a", "o", "of", "ac"]:
-            msg = f"unknown wo_mode '{wo_mode}'"
-            raise ValueError(msg)
 
         # "mode" is for the h5df.File and wo_mode is for this function
         # In hdf5, 'a' is really "modify" -- in addition to appending, you can
