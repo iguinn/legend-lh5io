@@ -132,13 +132,14 @@ class LH5Store:
             return lh5_file
 
         lh5_file = str(Path(lh5_file))
+        full_path = self.base_path.joinpath(lh5_file)
 
         if mode is None:
             if self.default_mode == "r":
                 mode = "r"
             elif (
                 self.default_mode == "of"
-                and str(self.base_path.joinpath(lh5_file)) not in self.files
+                and full_path not in self.files
             ):
                 mode = "w"
             else:
@@ -147,7 +148,6 @@ class LH5Store:
         if mode == "r":
             file_kwargs["locking"] = self.locking
 
-        full_path = self.base_path.joinpath(lh5_file)
         if full_path in self.files:
             self.files.move_to_end(full_path)
             return self.files[full_path]
@@ -184,7 +184,7 @@ class LH5Store:
         if self.keep_open:
             if self.keep_open is not True and len(self.files) >= self.keep_open:
                 self.files.popitem(last=False)[1].close()
-            self.files[lh5_file] = h5f
+            self.files[full_path] = h5f
 
         return h5f
 
@@ -282,7 +282,7 @@ class LH5Store:
         if wo_mode is None:
             wo_mode = self.default_mode
             if wo_mode == "r" or (
-                wo_mode == "of" and str(self.base_path.joinpath(lh5_file)) in self.files
+                wo_mode == "of" and self.base_path.joinpath(lh5_file) in self.files
             ):
                 wo_mode = "a"
         if wo_mode == "of":
@@ -324,10 +324,10 @@ class LH5Store:
                 h5f.close()
             self.files.clear()
         else:
-            lh5_file = str(Path(lh5_file))
-            if lh5_file in self.files:
-                self.files[lh5_file].close()
-                del self.files[lh5_file]
+            full_path = self.base_path.joinpath(lh5_file)
+            if full_path in self.files:
+                self.files[full_path].close()
+                del self.files[full_path]
 
     def __enter__(self):
         return self
