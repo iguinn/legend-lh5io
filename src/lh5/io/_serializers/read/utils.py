@@ -250,6 +250,7 @@ def read_size_in_bytes(h5o, fname, oname, field_mask=None):
         obj = h5py.h5o.open(h5o, b"encoded_data")
         cl = h5py.h5o.open(obj, b"cumulative_length")
         size *= cl.shape[0]
+        cl.close()
         size *= 4  # TODO: UPDATE WHEN CODECS SUPPORT MORE DTYPES
         obj.close()
 

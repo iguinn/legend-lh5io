@@ -925,6 +925,7 @@ class LH5Iterator(Iterator):
 
         buf = self.read(self.next_i_entry, n_entries)
         if len(buf) == 0:
+            self.lh5_st.close()
             raise StopIteration
         self.next_i_entry = self.current_i_entry + len(buf)
         return buf
