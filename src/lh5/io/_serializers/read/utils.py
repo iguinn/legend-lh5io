@@ -156,7 +156,7 @@ def read_n_rows(h5o, fname, oname):
             obj = h5py.h5o.open(h5o, field.encode())
             n_rows_read = read_n_rows(obj, fname, field)
             obj.close()
-            if not rows_read:
+            if rows_read is None:
                 rows_read = n_rows_read
             elif rows_read != n_rows_read:
                 log.warning(
