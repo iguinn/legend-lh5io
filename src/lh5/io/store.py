@@ -63,9 +63,36 @@ class LH5Store:
         locking
             whether to lock files when reading
         default_mode
-            default mode in which to open files with this ``LH5Store``. See
-            :class:`h5py.File` documentation. If default_mode is ``"r"``, use
-            ``"a"`` when calling `LH5Store.write`.
+            default mode in which to open files with this ``LH5Store``. This can
+            be overridden by the `mode` argument in :meth:`read` and :meth:`write`
+
+            - ``write_safe`` or ``w``: only proceed with writing if the
+            object does not already exist in the file.
+            - ``append`` or ``a``: append along axis 0 (the first dimension)
+            of array-like objects and array-like subfields of structs.
+            :class:`~.lgdo.scalar.Scalar` objects get overwritten.
+            - ``overwrite`` or ``o``: replace data in the file if present,
+            starting from `write_start`. Note: overwriting with `write_start` =
+            end of array is the same as ``append``.
+            - ``overwrite_file`` or ``of``: delete file if present prior to
+            writing to it if the file is not already open. `write_start` should
+            be 0 (it's ignored). Writes to an already-opened file will use ``append``.
+
+            .. attention::
+                ``overwrite_file``'s behavior depends on the ``keep_open`` argument.
+                If ``keep_open=False``, the file will be overwritten every time it
+                is accessed (even for reading!); if ``keep_open=True``, it will be
+                overwritten once. If ``keep_open`` defines a finite cache, if the file
+                is removed from the cache and re-opened, it will be overwritten again!
+
+            - ``append_column`` or ``ac``: append fields/columns from an
+            :class:`~.lgdo.struct.Struct` `obj` (and derived types such as
+            :class:`~.lgdo.table.Table`) only if there is an existing
+            :class:`~.lgdo.struct.Struct` in the `lh5_file` with the same `name`.
+            If there are matching fields, it errors out. If appending to a
+            ``Table`` and the size of the new column is different from the size
+            of the existing table, it errors out.
+
         """
         self.base_path = Path(os.path.expandvars(base_path)).resolve()
         if not self.base_path.exists():
