@@ -56,8 +56,8 @@ def _h5_write_vector_of_vectors(
         _func = _h5_write_vector_of_vectors
     else:
         msg = (
-            "don't know how to serialize to disk flattened_data "
-            "of {type(obj.flattened_data).__name__} type"
+            f"don't know how to serialize to disk flattened_data "
+            f"of {type(obj.flattened_data).__name__} type"
         )
         raise LH5EncodeError(msg, lh5_file, group, f"{name}.flattened_data")
 

@@ -364,7 +364,7 @@ def _h5_read_table(
         if n != n_rows_read:
             log.warning(
                 f"Table '{oname}' got strange n_rows_read = {n}, "
-                "{n_rows_read} was expected ({rows_read})"
+                f"{n_rows_read} was expected ({rows_read})"
             )
 
     # fields have been read out, now return a table
