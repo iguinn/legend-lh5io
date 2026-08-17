@@ -107,8 +107,8 @@ def _h5_write_vector_of_vectors(
     # actually safer than when Array does it! But, do we really want to allow
     # writing with a write_start past the end of the array?
     if write_start > len_cl:
-        fillin = group["cumulative_length"][len_cl - 1] if len_cl > 0 else 0
-        group["cumulative_length"][len_cl:write_start] = fillin
+        fill_in = group["cumulative_length"][len_cl - 1] if len_cl > 0 else 0
+        group["cumulative_length"][len_cl:write_start] = fill_in
 
     np.subtract(
         obj.cumulative_length.nda,

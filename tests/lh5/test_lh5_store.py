@@ -45,6 +45,7 @@ def test_gimme_file(lgnd_file, tmptestdir):
         assert files[1] in store.files
         assert files[2] in store.files
 
+
 def test_close_file(lgnd_file):
     store = lh5.LH5Store(keep_open=True)
     full_path = store.base_path / lgnd_file
@@ -81,58 +82,88 @@ def test_write_objects(tmptestdir):
     # test writing in all wo_modes and with several other arguments
 
     # test writing all object types at once by putting them in a Table
-    struct = lgdo.Struct({
-        "table": lgdo.Table( {
-            "array": lgdo.Array(np.arange(10)),
-            "aoesa": lgdo.ArrayOfEqualSizedArrays(nda=np.arange(100).reshape((10, 10))),
-            "waveform": lgdo.WaveformTable(
-                values=lgdo.ArrayOfEqualSizedArrays(
-                    nda=np.arange(100).reshape((10, 10)), attrs={"unit": "ADC"}
-                ),
-                t0 = lgdo.Array(np.arange(10), attrs={"unit": "ns"}),
-                dt = 10,
-                dt_units="ns",
-            ),
-            "vov": lgdo.VectorOfVectors(flattened_data=np.arange(100), cumulative_length=lgdo.Array([1, 4, 9, 16, 25, 36, 49, 64, 81, 100])),
-        } )
-    } )
+    struct = lgdo.Struct(
+        {
+            "table": lgdo.Table(
+                {
+                    "array": lgdo.Array(np.arange(10)),
+                    "aoesa": lgdo.ArrayOfEqualSizedArrays(
+                        nda=np.arange(100).reshape((10, 10))
+                    ),
+                    "waveform": lgdo.WaveformTable(
+                        values=lgdo.ArrayOfEqualSizedArrays(
+                            nda=np.arange(100).reshape((10, 10)), attrs={"unit": "ADC"}
+                        ),
+                        t0=lgdo.Array(np.arange(10), attrs={"unit": "ns"}),
+                        dt=10,
+                        dt_units="ns",
+                    ),
+                    "vov": lgdo.VectorOfVectors(
+                        flattened_data=np.arange(100),
+                        cumulative_length=lgdo.Array(
+                            [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+                        ),
+                    ),
+                }
+            )
+        }
+    )
 
-    struct_append = lgdo.Struct({
-        "table": lgdo.Table( {
-            "array": lgdo.Array(np.arange(10, 12)),
-            "aoesa": lgdo.ArrayOfEqualSizedArrays(
-                nda=np.arange(100, 120).reshape((2, 10))
-            ),
-            "waveform": lgdo.WaveformTable(
-                values=lgdo.ArrayOfEqualSizedArrays(
-                    nda=np.arange(100, 120).reshape((2, 10)), attrs={"unit": "ADC"}
-                ),
-                t0 = lgdo.Array(np.arange(10, 12), attrs={"unit": "ns"}),
-                dt = 10,
-                dt_units="ns",
-            ),
-            "vov": lgdo.VectorOfVectors(flattened_data=np.arange(100, 144), cumulative_length=lgdo.Array([21, 44])),
-        } )
-    } )
+    struct_append = lgdo.Struct(
+        {
+            "table": lgdo.Table(
+                {
+                    "array": lgdo.Array(np.arange(10, 12)),
+                    "aoesa": lgdo.ArrayOfEqualSizedArrays(
+                        nda=np.arange(100, 120).reshape((2, 10))
+                    ),
+                    "waveform": lgdo.WaveformTable(
+                        values=lgdo.ArrayOfEqualSizedArrays(
+                            nda=np.arange(100, 120).reshape((2, 10)),
+                            attrs={"unit": "ADC"},
+                        ),
+                        t0=lgdo.Array(np.arange(10, 12), attrs={"unit": "ns"}),
+                        dt=10,
+                        dt_units="ns",
+                    ),
+                    "vov": lgdo.VectorOfVectors(
+                        flattened_data=np.arange(100, 144),
+                        cumulative_length=lgdo.Array([21, 44]),
+                    ),
+                }
+            )
+        }
+    )
 
-    struct_combined = lgdo.Struct({
-        "table": lgdo.Table( {
-            "array": lgdo.Array(np.arange(12)),
-            "aoesa": lgdo.ArrayOfEqualSizedArrays(nda=np.arange(120).reshape((12, 10))),
-            "waveform": lgdo.WaveformTable(
-                values=lgdo.ArrayOfEqualSizedArrays(
-                    nda=np.arange(120).reshape((12, 10)), attrs={"unit": "ADC"}
-                ),
-                t0 = lgdo.Array(np.arange(12), attrs={"unit": "ns"}),
-                dt = 10,
-                dt_units="ns",
-            ),
-            "vov": lgdo.VectorOfVectors(flattened_data=np.arange(144), cumulative_length=lgdo.Array([1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144])),
-        } )
-    } )
+    struct_combined = lgdo.Struct(
+        {
+            "table": lgdo.Table(
+                {
+                    "array": lgdo.Array(np.arange(12)),
+                    "aoesa": lgdo.ArrayOfEqualSizedArrays(
+                        nda=np.arange(120).reshape((12, 10))
+                    ),
+                    "waveform": lgdo.WaveformTable(
+                        values=lgdo.ArrayOfEqualSizedArrays(
+                            nda=np.arange(120).reshape((12, 10)), attrs={"unit": "ADC"}
+                        ),
+                        t0=lgdo.Array(np.arange(12), attrs={"unit": "ns"}),
+                        dt=10,
+                        dt_units="ns",
+                    ),
+                    "vov": lgdo.VectorOfVectors(
+                        flattened_data=np.arange(144),
+                        cumulative_length=lgdo.Array(
+                            [1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144]
+                        ),
+                    ),
+                }
+            )
+        }
+    )
 
     # append node with new file
-    outfile = tmptestdir / f"test-write-objects.lh5"
+    outfile = tmptestdir / "test-write-objects.lh5"
     with lh5.LH5Store(keep_open=True, default_mode="a") as store:
         store.write(struct, "struct", outfile, group="/data")
         assert store.read("/data/struct", outfile) == struct
@@ -145,7 +176,9 @@ def test_write_objects(tmptestdir):
         assert store.read("/data/struct", outfile) == struct
         store.write(struct_append, "struct", outfile, group="/data", write_start=10)
         assert store.read("/data/struct", outfile) == struct_combined
-        store.write(struct, "struct", outfile, group="/data", write_start=5, start_row=5)
+        store.write(
+            struct, "struct", outfile, group="/data", write_start=5, start_row=5
+        )
         assert store.read("/data/struct", outfile) == struct
         store.write(struct_append, "struct", outfile, group="/data")
         assert store.read("/data/struct", outfile) == struct_append
@@ -162,11 +195,11 @@ def test_write_objects(tmptestdir):
         # cannot append if already exists
         with pytest.raises(lh5.io.exceptions.LH5EncodeError):
             store.write(struct.table, "table", outfile, group="/data/struct")
-            assert store.read("/data/struct", outfile) == struct
+
         # ac won't create new structs
         with pytest.raises(lh5.io.exceptions.LH5EncodeError):
             store.write(struct_append, "struct2", outfile, group="/data")
-            assert store.read("/data/struct2", outfile) == struct_append
+
         # data should be unchanged
         assert store.read("/data/struct", outfile) == struct_combined
 

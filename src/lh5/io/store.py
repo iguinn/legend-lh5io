@@ -92,7 +92,6 @@ class LH5Store:
             If there are matching fields, it errors out. If appending to a
             ``Table`` and the size of the new column is different from the size
             of the existing table, it errors out.
-
         """
         self.base_path = Path(os.path.expandvars(base_path)).resolve()
         if not self.base_path.exists():
@@ -137,10 +136,7 @@ class LH5Store:
         if mode is None:
             if self.default_mode == "r":
                 mode = "r"
-            elif (
-                self.default_mode == "of"
-                and full_path not in self.files
-            ):
+            elif self.default_mode == "of" and full_path not in self.files:
                 mode = "w"
             else:
                 mode = "a"

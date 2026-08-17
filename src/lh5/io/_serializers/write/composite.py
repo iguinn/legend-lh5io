@@ -285,7 +285,10 @@ def _h5_write_struct(
         if (
             isinstance(obj, types.Table)
             and datatype.datatype(old_group.attrs["datatype"]) != "struct"
-            and read_n_rows(next(iter(old_group.values())).id, lh5_file.name, old_group.name) != obj.size
+            and read_n_rows(
+                next(iter(old_group.values())).id, lh5_file.name, old_group.name
+            )
+            != obj.size
         ):
             msg = (
                 f"Table sizes don't match. Trying to append column of size {obj.size} "
