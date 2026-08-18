@@ -230,6 +230,10 @@ def fmtbytes(num, suffix="B"):
 def normalize_womode(wo_mode: str) -> str:
     """Normalize wo_mode to single-character values and raises exception if
     this cannot be done."""
+    if wo_mode is None:
+        return wo_mode
+
+    wo_mode = wo_mode.strip().lower()
     mode = {
         "read": "r",
         "write_safe": "w",
@@ -238,7 +242,7 @@ def normalize_womode(wo_mode: str) -> str:
         "overwrite_file": "of",
         "append_column": "ac",
     }.get(wo_mode, wo_mode)
-    if mode not in ("r", "w", "a", "o", "of", "ac", None):
+    if mode not in ("r", "w", "a", "o", "of", "ac"):
         msg = f"Invalid wo_mode: {wo_mode}."
         raise ValueError(msg)
     return mode
