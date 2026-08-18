@@ -90,15 +90,16 @@ def _h5_read_lgdo(
     # Below here is all array-like types. So trim idx if needed
     if idx is not None:
         idx = np.asarray(idx)
-        idx_diff = np.diff(idx.flatten())
 
-        if not (idx_diff > 0).all():
-            msg = "index array must be strictly increasing"
-            raise ValueError(msg)
-
+        # check that idx is valid and trim to requested range
         if len(idx) == 0:
             pass
         elif idx.ndim == 1:
+            idx_diff = np.diff(idx)
+            if not (idx_diff > 0).all():
+                msg = "index array must increasing and unique"
+                raise ValueError(msg)
+
             # check if idx is just an ordered list of the integers if so can ignore
             if len(idx_diff) > 0 and (idx_diff == 1).all():
                 start_row = max(start_row, idx[0])
@@ -111,6 +112,9 @@ def _h5_read_lgdo(
                     i_first_valid : i_first_valid + n_rows
                 ]  # works even if n_rows > len(idxa)
         elif idx.ndim == 2 and idx.shape[1] == 2:
+            if not ((idx[:, 0] < idx[:, 1]).all() and (np.diff(idx, axis=0) > 0).all()):
+                msg = "index array must be increasing along each axis"
+                raise ValueError(msg)
             # chop off indices < start_row
             i_first_valid = bisect.bisect_right(idx[:, 1], start_row)
             if i_first_valid < len(idx) and idx[i_first_valid, 0] < start_row:

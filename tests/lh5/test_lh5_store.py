@@ -422,6 +422,14 @@ def test_read_array_fancy_idx(lh5_file):
     assert len(lh5_obj) == 3
     assert lh5_obj == lgdo.Array([1, 4, 5])
 
+    # test with list of ranges with no gap
+    lh5_obj = store.read(
+        "/data/struct_full/array", lh5_file, idx=np.array([[0, 1], [1, 3]])
+    )
+    assert isinstance(lh5_obj, types.Array)
+    assert len(lh5_obj) == 3
+    assert lh5_obj == lgdo.Array([1, 2, 3])
+
     # Test idx with list of ranges and start_rows and n_rows
     lh5_obj = store.read(
         "/data/struct_full/array",
