@@ -336,7 +336,7 @@ class LH5Store:
         if wo_mode is None:
             wo_mode = self.default_mode
             if wo_mode == "r" or (
-                wo_mode == "of" and str(self.base_path.joinpath(lh5_file)) in self.files
+                wo_mode == "of" and self.base_path.joinpath(lh5_file) in self.files
             ):
                 wo_mode = "a"
         if wo_mode == "of":
