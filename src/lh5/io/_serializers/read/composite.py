@@ -113,8 +113,7 @@ def _h5_read_lgdo(
                 ]  # works even if n_rows > len(idxa)
         elif idx.ndim == 2 and idx.shape[1] == 2:
             if not (
-                (idx[:, 0] < idx[:, 1]).all()
-                and (idx[:-1, 1] <= idx[1:, 0]).all()
+                (idx[:, 0] < idx[:, 1]).all() and (idx[:-1, 1] <= idx[1:, 0]).all()
             ):
                 msg = "index ranges must be increasing and non-overlapping"
                 raise ValueError(msg)
