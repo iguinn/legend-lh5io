@@ -1104,6 +1104,8 @@ def test_views(tmptestdir):
         lh5_file = store.gimme_file(test_file)
         ext_file = store.gimme_file(external_file)
 
+        assert store.read_n_rows("/views/hard_1d", lh5_file) == len(expected_1d)
+        assert store.read_size_in_bytes("/views/hard_1d", lh5_file) == expected_1d.nbytes
         ar_h1d = store.read("/views/hard_1d", test_file)
         assert isinstance(ar_h1d, types.Array)
         assert np.all(ar_h1d.nda == expected_1d)
@@ -1111,6 +1113,8 @@ def test_views(tmptestdir):
             lh5_file["views/hard_1d"].get("data", getlink=True), h5py.HardLink
         )
 
+        assert store.read_n_rows("/views/soft_1d", lh5_file) == len(expected_1d)
+        assert store.read_size_in_bytes("/views/soft_1d", lh5_file) == expected_1d.nbytes
         ar_s1d = store.read("/views/soft_1d", test_file)
         assert isinstance(ar_s1d, types.Array)
         assert np.all(ar_s1d.nda == expected_1d)
@@ -1118,6 +1122,8 @@ def test_views(tmptestdir):
             lh5_file["views/soft_1d"].get("data", getlink=True), h5py.SoftLink
         )
 
+        assert store.read_n_rows("/views/external_1d", external_file) == len(expected_1d)
+        assert store.read_size_in_bytes("/views/external_1d", external_file) == expected_1d.nbytes
         ar_e1d = store.read("/views/external_1d", external_file)
         assert isinstance(ar_e1d, types.Array)
         assert np.all(ar_e1d.nda == expected_1d)
@@ -1125,6 +1131,8 @@ def test_views(tmptestdir):
             ext_file["views/external_1d"].get("data", getlink=True), h5py.ExternalLink
         )
 
+        assert store.read_n_rows("/views/hard_2d", lh5_file) == len(expected_2d)
+        assert store.read_size_in_bytes("/views/hard_2d", lh5_file) == expected_2d.nbytes
         ar_h2d = store.read("/views/hard_2d", test_file)
         assert isinstance(ar_h2d, types.Array)
         assert np.all(ar_h2d.nda == expected_2d)
@@ -1132,6 +1140,8 @@ def test_views(tmptestdir):
             lh5_file["views/hard_2d"].get("data", getlink=True), h5py.HardLink
         )
 
+        assert store.read_n_rows("/views/soft_2d", lh5_file) == len(expected_2d)
+        assert store.read_size_in_bytes("/views/soft_2d", lh5_file) == expected_2d.nbytes
         ar_s2d = store.read("/views/soft_2d", test_file)
         assert isinstance(ar_s2d, types.Array)
         assert np.all(ar_s2d.nda == expected_2d)
@@ -1139,6 +1149,8 @@ def test_views(tmptestdir):
             lh5_file["views/soft_2d"].get("data", getlink=True), h5py.SoftLink
         )
 
+        assert store.read_n_rows("/views/external_2d", external_file) == len(expected_2d)
+        assert store.read_size_in_bytes("/views/external_2d", external_file) == expected_2d.nbytes
         ar_e2d = store.read("/views/external_2d", external_file)
         assert isinstance(ar_e2d, types.Array)
         assert np.all(ar_e2d.nda == expected_2d)

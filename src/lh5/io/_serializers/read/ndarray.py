@@ -11,7 +11,7 @@ from lgdo.types import Array
 
 from ... import datatype
 from ...exceptions import LH5DecodeError
-from .utils import read_attrs
+from . import utils
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ def _h5_read_ndarray(
         h5d.read(mspace, fspace, nda)
 
     # Finally, set attributes and return objects
-    attrs = read_attrs(h5d, fname, oname)
+    attrs = utils.read_attrs(h5d, fname, oname)
 
     # special handling for bools
     # (c and Julia store as uint8 so cast to bool)
