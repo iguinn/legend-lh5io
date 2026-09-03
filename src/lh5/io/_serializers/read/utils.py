@@ -10,8 +10,7 @@ from lgdo import types
 
 from ... import datatype
 from ...exceptions import LH5DecodeError
-from . import scalar
-from . import ndarray
+from . import ndarray, scalar
 
 log = logging.getLogger(__name__)
 
@@ -152,7 +151,7 @@ def read_n_rows(h5o, fname, oname):
         return shape[0]
 
     # view of slices, read entries and sum over lengths
-    elif type_attr == "view{slices}":
+    if type_attr == "view{slices}":
         # Read the entries for the view
         h5d_ent = h5py.h5d.open(h5o, b"entries")
         entries, _, _ = ndarray._h5_read_ndarray(
@@ -241,7 +240,7 @@ def read_size_in_bytes(h5o, fname, oname, field_mask=None):
         n_entry = read_n_rows(h5o, fname, oname)
         n_total = read_n_rows(h5o_data, fname, f"{oname}/data")
         size_total = read_size_in_bytes(h5o_data, fname, f"{oname}/data", field_mask)
-        return int(np.round(n_entry/n_total*size_total))
+        return int(np.round(n_entry / n_total * size_total))
 
     lgdotype = datatype.datatype(type_attr)
     field_mask = build_field_mask(field_mask)
