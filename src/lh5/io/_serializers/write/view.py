@@ -58,9 +58,11 @@ def _h5_write_view(
         msg = f"can't overwrite '{name}' in wo_mode 'write_safe'"
         raise LH5EncodeError(msg, lh5_file, group, name)
     view = utils.get_h5_group(name, group, overwrite=overwrite)
-    if view.attrs.setdefault("datatype", view_type) != view_type and not overwrite:
-        msg = f"cannot write a `{view_type}` to '{name}' (`{view.attrs['datatype']}')"
-        raise LH5EncodeError(msg, lh5_file, group, name)
+    if view.attrs.setdefault("datatype", view_type) != view_type:
+        if not overwrite:
+            msg = f"cannot write a `{view_type}` to '{name}' (`{view.attrs['datatype']}')"
+            raise LH5EncodeError(msg, lh5_file, group, name)
+        view.attrs["datatype"] = view_type
 
     # Deduce link type if needed
     if isinstance(external_file, h5py.File):
