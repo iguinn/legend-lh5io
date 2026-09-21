@@ -61,20 +61,6 @@ def _h5_read_lgdo(
     attrs = utils.read_attrs(h5o, fname, oname)
     try:
         dtype_attr = attrs["datatype"]
-        if dtype_attr[:4] == "view":
-            return _h5_read_view(
-                h5o,
-                fname,
-                oname,
-                view_type=dtype_attr,
-                start_row=start_row,
-                n_rows=n_rows,
-                idx=idx,
-                field_mask=field_mask,
-                obj_buf=obj_buf,
-                obj_buf_start=obj_buf_start,
-                decompress=decompress,
-            )
         lgdotype = dtypeutils.datatype(dtype_attr)
     except KeyError as e:
         msg = "dataset not in file or missing 'datatype' attribute"
@@ -152,6 +138,21 @@ def _h5_read_lgdo(
         else:
             msg = "index array must be 1D or 2D with shape (n,2)"
             raise ValueError(msg)
+
+    if lgdotype is dtypeutils.View:
+        return _h5_read_view(
+            h5o,
+            fname,
+            oname,
+            view_type=dtype_attr,
+            start_row=start_row,
+            n_rows=n_rows,
+            idx=idx,
+            field_mask=field_mask,
+            obj_buf=obj_buf,
+            obj_buf_start=obj_buf_start,
+            decompress=decompress,
+        )
 
     if lgdotype is Table:
         return _h5_read_table(

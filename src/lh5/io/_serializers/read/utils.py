@@ -228,7 +228,10 @@ def read_size_in_bytes(h5o, fname, oname, field_mask=None):
     h5a.read(type_attr)
     type_attr = type_attr.item().decode()
 
-    if type_attr[:4] == "view":
+    lgdotype = datatype.datatype(type_attr)
+    field_mask = build_field_mask(field_mask)
+
+    if lgdotype is datatype.View:
         # open the dataset linked by the view
         try:
             h5o_data = h5py.h5o.open(h5o, b"data")
@@ -241,9 +244,6 @@ def read_size_in_bytes(h5o, fname, oname, field_mask=None):
         n_total = read_n_rows(h5o_data, fname, f"{oname}/data")
         size_total = read_size_in_bytes(h5o_data, fname, f"{oname}/data", field_mask)
         return int(np.round(n_entry / n_total * size_total))
-
-    lgdotype = datatype.datatype(type_attr)
-    field_mask = build_field_mask(field_mask)
 
     # scalars are dim-0 datasets
     if lgdotype in (
