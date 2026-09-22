@@ -28,7 +28,13 @@ def _h5_read_view(
     decompress=True,
 ):
     # Read the entries for the view
-    with closing(h5py.h5d.open(h5g, b"entries")) as h5d_ent:
+    try:
+        h5d_ent = h5py.h5d.open(h5g, b"entries")
+    except KeyError:
+        msg = "entries not found"
+        raise LH5DecodeError(msg, fname, oname)
+
+    with closing(h5d_ent):
         if view_type == "view{entries}":
             if len(h5d_ent.shape) != 1:
                 msg = "entries must be a 1D array of integers for view{entries}"
@@ -147,17 +153,18 @@ def _h5_read_view(
         msg = f"view {oname} does not link to data"
         raise LH5DecodeError(msg, fname, oname) from e
 
-    output = composite._h5_read_lgdo(
-        h5o,
-        fname,
-        oname,
-        start_row=0,
-        n_rows=sys.maxsize,
-        idx=entries,
-        field_mask=field_mask,
-        obj_buf=obj_buf,
-        obj_buf_start=obj_buf_start,
-        decompress=decompress,
-    )
-    h5o.close()
+    with closing(h5o):
+        output = composite._h5_read_lgdo(
+            h5o,
+            fname,
+            oname,
+            start_row=0,
+            n_rows=sys.maxsize,
+            idx=entries,
+            field_mask=field_mask,
+            obj_buf=obj_buf,
+            obj_buf_start=obj_buf_start,
+            decompress=decompress,
+        )
+
     return output

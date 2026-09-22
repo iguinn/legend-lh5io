@@ -3,6 +3,7 @@ from __future__ import annotations
 import bisect
 import logging
 import sys
+from contextlib import closing
 
 import h5py
 import numpy as np
@@ -303,18 +304,17 @@ def _h5_read_struct(
     for field, submask in selected_fields:
         # support for integer keys
         field_key = int(field) if attrs.get("int_keys") else str(field)
-        h5o = h5py.h5o.open(h5g, field.encode("utf-8"))
-        obj_dict[field_key], _ = _h5_read_lgdo(
-            h5o,
-            fname,
-            f"{oname}/{field}",
-            start_row=start_row,
-            n_rows=n_rows,
-            idx=idx,
-            field_mask=submask,
-            decompress=decompress,
-        )
-        h5o.close()
+        with closing(h5py.h5o.open(h5g, field.encode("utf-8"))) as h5o:
+            obj_dict[field_key], _ = _h5_read_lgdo(
+                h5o,
+                fname,
+                f"{oname}/{field}",
+                start_row=start_row,
+                n_rows=n_rows,
+                idx=idx,
+                field_mask=submask,
+                decompress=decompress,
+            )
 
     return Struct(obj_dict=obj_dict, attrs=attrs), 1
 
@@ -356,20 +356,19 @@ def _h5_read_table(
 
             fld_buf = obj_buf[field]
 
-        h5o = h5py.h5o.open(h5g, field.encode("utf-8"))
-        col_dict[field], n_rows_read = _h5_read_lgdo(
-            h5o,
-            fname,
-            f"{oname}/{field}",
-            start_row=start_row,
-            n_rows=n_rows,
-            idx=idx,
-            obj_buf=fld_buf,
-            obj_buf_start=obj_buf_start,
-            field_mask=submask,
-            decompress=decompress,
-        )
-        h5o.close()
+        with closing(h5py.h5o.open(h5g, field.encode("utf-8"))) as h5o:
+            col_dict[field], n_rows_read = _h5_read_lgdo(
+                h5o,
+                fname,
+                f"{oname}/{field}",
+                start_row=start_row,
+                n_rows=n_rows,
+                idx=idx,
+                obj_buf=fld_buf,
+                obj_buf_start=obj_buf_start,
+                field_mask=submask,
+                decompress=decompress,
+            )
 
         if obj_buf is not None and obj_buf_start + n_rows_read > len(obj_buf):
             obj_buf.resize(obj_buf_start + n_rows_read)
