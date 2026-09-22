@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
 import awkward as ak
 import h5py
-import logging
 import lgdo
 import numpy as np
 import pytest
@@ -1437,7 +1438,9 @@ def test_views(tmptestdir, caplog):
         assert np.all(ar.nda == np.array([1, 5, 21, 89]))
 
         # 2d mask with 1d view
-        ar = store.read("/views/hard_1d", test_file, idx=np.array([[0, 3], [5, 6], [7, 10]]))
+        ar = store.read(
+            "/views/hard_1d", test_file, idx=np.array([[0, 3], [5, 6], [7, 10]])
+        )
         assert np.all(ar.nda == np.array([1, 2, 3, 13, 34, 55, 89]))
 
         # start_row and n_rows with 2d view
@@ -1447,39 +1450,35 @@ def test_views(tmptestdir, caplog):
         assert np.all(ar.nda == np.arange(20, 40))
 
         # 1d mask with 2d view. Make sure to get in some boundary values
-        ar = store.read("/views/hard_2d", test_file, idx=np.array([0, 3, 9, 10, 55, 59]))
+        ar = store.read(
+            "/views/hard_2d", test_file, idx=np.array([0, 3, 9, 10, 55, 59])
+        )
         assert np.all(ar.nda == np.array([0, 3, 9, 20, 95, 99]))
         caplog.clear()
         with caplog.at_level(logging.WARNING):
             ar = store.read("/views/hard_2d", test_file, idx=np.array([60, 65]))
-            assert len(ar)==0
-            assert len(caplog.records)==2
+            assert len(ar) == 0
+            assert len(caplog.records) == 2
 
         # 2d mask with 2d view
         ar = store.read(
             "/views/hard_2d",
             test_file,
-            idx=np.array([[0, 3], [5, 7], [8, 10], [30, 32], [48, 52], [58, 60]])
+            idx=np.array([[0, 3], [5, 7], [8, 10], [30, 32], [48, 52], [58, 60]]),
         )
-        assert np.all(ar.nda == np.array([0, 1, 2, 5, 6, 8, 9, 60, 61, 78, 79, 90, 91, 98, 99]))
+        assert np.all(
+            ar.nda == np.array([0, 1, 2, 5, 6, 8, 9, 60, 61, 78, 79, 90, 91, 98, 99])
+        )
         caplog.clear()
         with caplog.at_level(logging.WARNING):
-            ar = store.read(
-                "/views/hard_2d",
-                test_file,
-                idx=np.array([[58, 62]])
-            )
+            ar = store.read("/views/hard_2d", test_file, idx=np.array([[58, 62]]))
             assert np.all(ar.nda == np.array([98, 99]))
-            assert len(caplog.records)==1
+            assert len(caplog.records) == 1
         caplog.clear()
         with caplog.at_level(logging.WARNING):
-            ar = store.read(
-                "/views/hard_2d",
-                test_file,
-                idx=np.array([[60, 62]])
-            )
-            assert len(ar)==0
-            assert len(caplog.records)==2
+            ar = store.read("/views/hard_2d", test_file, idx=np.array([[60, 62]]))
+            assert len(ar) == 0
+            assert len(caplog.records) == 2
 
     # Test other sorts of errors...
     with lh5.LH5Store(keep_open=True, default_mode="a") as store:

@@ -60,7 +60,9 @@ def _h5_write_view(
     view = utils.get_h5_group(name, group, overwrite=overwrite)
     if view.attrs.setdefault("datatype", view_type) != view_type:
         if not overwrite:
-            msg = f"cannot write a `{view_type}` to '{name}' (`{view.attrs['datatype']}')"
+            msg = (
+                f"cannot write a `{view_type}` to '{name}' (`{view.attrs['datatype']}')"
+            )
             raise LH5EncodeError(msg, lh5_file, group, name)
         view.attrs["datatype"] = view_type
 

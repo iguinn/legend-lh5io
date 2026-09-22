@@ -67,11 +67,13 @@ def _h5_read_view(
                     i_start = np.searchsorted(cum_entries, start_row, "right")
                     i_stop = np.searchsorted(cum_entries, stop_row, "left")
 
-                    entries = entries[i_start:i_stop+1, :]
-                    entries[0,0] += start_row - (cum_entries[i_start-1] if i_start > 0 else 0)
-                    entries[-1,1] += stop_row - cum_entries[i_stop]
+                    entries = entries[i_start : i_stop + 1, :]
+                    entries[0, 0] += start_row - (
+                        cum_entries[i_start - 1] if i_start > 0 else 0
+                    )
+                    entries[-1, 1] += stop_row - cum_entries[i_stop]
 
-            elif idx.ndim==1:
+            elif idx.ndim == 1:
                 # list of indices: calculate the data array indices by finding the
                 # index within each range that corresponds to the idx list
                 # Note: indices should already be sorted and trimmed for start_row and
@@ -81,18 +83,22 @@ def _h5_read_view(
                 idx_range = np.searchsorted(idx, cum_entries, "left")
                 i_start = 0
                 for i_range, i_end in enumerate(idx_range):
-                    offset = entries[i_range, 0] - (cum_entries[i_range-1] if i_range>0 else 0)
+                    offset = entries[i_range, 0] - (
+                        cum_entries[i_range - 1] if i_range > 0 else 0
+                    )
                     new_idx[i_start:i_end] = idx[i_start:i_end] + offset
                     i_start = i_end
 
                 if i_end < len(idx):
-                    log.warning("idx indexed past the end of the array in the file. Culling...")
+                    log.warning(
+                        "idx indexed past the end of the array in the file. Culling..."
+                    )
                     new_idx = new_idx[:i_end]
                 entries = new_idx
                 if len(entries) == 0:
                     log.warning("idx empty after culling.")
 
-            elif idx.ndim==2 and idx.shape[1] == 2:
+            elif idx.ndim == 2 and idx.shape[1] == 2:
                 # list of ranges: calculate the data array indices by finding the
                 # index within each range that corresponds to the idx list
                 # Note: indices should already be sorted and trimmed for start_row and
@@ -100,21 +106,29 @@ def _h5_read_view(
                 new_idx = []
                 cum_entries = np.cumsum(np.diff(entries, axis=1)).ravel()
 
-                for start_row, stop_row in idx:
-                    i_start = np.searchsorted(cum_entries, start_row, "right")
-                    i_stop = np.searchsorted(cum_entries, stop_row, "left")
+                for row_start, row_stop in idx:
+                    i_start = np.searchsorted(cum_entries, row_start, "right")
+                    i_stop = np.searchsorted(cum_entries, row_stop, "left")
                     if i_start >= len(cum_entries):
                         break
 
-                    this_entries = np.copy(entries[i_start:i_stop+1, :])
-                    this_entries[0,0] += start_row - (cum_entries[i_start-1] if i_start > 0 else 0)
+                    this_entries = np.copy(entries[i_start : i_stop + 1, :])
+                    this_entries[0, 0] += row_start - (
+                        cum_entries[i_start - 1] if i_start > 0 else 0
+                    )
                     if i_stop < len(cum_entries):
-                        this_entries[-1,1] += stop_row - cum_entries[i_stop]
+                        this_entries[-1, 1] += row_stop - cum_entries[i_stop]
                     new_idx.append(this_entries)
 
                 if len(idx) > 0 and i_stop >= len(cum_entries):
-                    log.warning("idx indexed past the end of the array in the file. Culling...")
-                entries = np.concatenate(new_idx) if len(new_idx)>0 else np.zeros((0), dtype="int")
+                    log.warning(
+                        "idx indexed past the end of the array in the file. Culling..."
+                    )
+                entries = (
+                    np.concatenate(new_idx)
+                    if len(new_idx) > 0
+                    else np.zeros((0), dtype="int")
+                )
                 if len(entries) == 0:
                     log.warning("idx empty after culling.")
 

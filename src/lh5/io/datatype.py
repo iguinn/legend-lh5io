@@ -6,9 +6,11 @@ from itertools import permutations as perm
 
 from lgdo import types
 
+
 class View(types.LGDO):
     # dummy type to identify views
     pass
+
 
 _lgdo_datatype_map: dict[str, types.LGDO] = OrderedDict(
     [
