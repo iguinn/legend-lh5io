@@ -32,7 +32,7 @@ def _h5_read_view(
         h5d_ent = h5py.h5d.open(h5g, b"entries")
     except KeyError:
         msg = "entries not found"
-        raise LH5DecodeError(msg, fname, oname)
+        raise LH5DecodeError(msg, fname, oname) from None
 
     with closing(h5d_ent):
         if view_type == "view{entries}":
@@ -60,12 +60,16 @@ def _h5_read_view(
             )
 
             if len(entries) == 0:
-                pass
+                if idx is not None and len(idx) > 0:
+                    log.warning(
+                        "idx indexed past the end of the array in the file. Culling..."
+                    )
+                    log.warning("idx empty after culling.")
 
             elif idx is None:
                 # get entries, adjusted for start_row and n_rows
                 cum_entries = np.cumsum(np.diff(entries, axis=1)).ravel()
-                stop_row = np.minimum(n_rows + start_row, cum_entries[-1])
+                stop_row = min(n_rows + start_row, cum_entries[-1])
 
                 if stop_row <= start_row:
                     entries = np.empty((0), dtype=entries.dtype)
@@ -154,7 +158,7 @@ def _h5_read_view(
         raise LH5DecodeError(msg, fname, oname) from e
 
     with closing(h5o):
-        output = composite._h5_read_lgdo(
+        return composite._h5_read_lgdo(
             h5o,
             fname,
             oname,
@@ -166,5 +170,3 @@ def _h5_read_view(
             obj_buf_start=obj_buf_start,
             decompress=decompress,
         )
-
-    return output

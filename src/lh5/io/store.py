@@ -332,11 +332,11 @@ class LH5Store:
         page_buffer: int = 0,
         **h5py_kwargs,
     ) -> None:
-        """Write an LGDO into an LH5 file.
+        """Write a view into an LH5 file.
 
         See Also
         --------
-        .core.write
+        .core.write_view
         """
         wo_mode = utils.normalize_womode(wo_mode)
         if wo_mode is None:
@@ -358,6 +358,7 @@ class LH5Store:
             k: h5py_kwargs[k]
             for k in h5py_kwargs & signature(h5py.File).parameters.keys()
         }
+        h5py_kwargs = {k: v for k, v in h5py_kwargs.items() if k not in file_kwargs}
 
         lh5_file = self.gimme_file(
             lh5_file, mode=mode, page_buffer=page_buffer, **file_kwargs

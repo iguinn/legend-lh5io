@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Literal
 
 import h5py
@@ -34,29 +35,40 @@ def _h5_write_view(
         msg = "entries must be ints"
         raise TypeError(msg)
 
-    # Check validity of entries
-    if len(entries) > 0 and not (
-        np.all(entries.ravel()[1:] > entries.ravel()[:-1]) and entries.ravel()[0] >= 0
-    ):
-        msg = "entries must be positive and in ascending order"
-        raise LH5EncodeError(msg, lh5_file, group, name)
-
-    # check type of view and define datatype string
+    # check type of view, validate entries, and define datatype string
     if len(entries.shape) == 1:
+        if len(entries) > 0 and not (
+            np.all(entries[1:] > entries[:-1]) and entries[0] >= 0
+        ):
+            msg = "entries must be positive and in ascending order"
+            raise LH5EncodeError(msg, lh5_file, group, name)
         view_type = "view{entries}"
+
     elif len(entries.shape) == 2 and entries.shape[1] == 2:
+        if len(entries) > 0 and not (
+            np.all(entries[:, 1] > entries[:, 0])
+            and np.all(entries[1:, 0] >= entries[:-1, 1])
+            and entries[0, 0] >= 0
+        ):
+            msg = "entries must be positive and in ascending order"
+            raise LH5EncodeError(msg, lh5_file, group, name)
         view_type = "view{slices}"
+
     else:
         msg = "entries must have shape (n,) or (n, 2)"
         raise LH5EncodeError(msg, lh5_file, group, name)
 
     # create/get the view
     wo_mode = utils.normalize_womode(wo_mode)
+    if wo_mode == "of":
+        write_start = 0
     overwrite = wo_mode == "o"
+
     group = utils.get_h5_group(group, lh5_file)
     if wo_mode == "w" and name in group:
         msg = f"can't overwrite '{name}' in wo_mode 'write_safe'"
         raise LH5EncodeError(msg, lh5_file, group, name)
+
     view = utils.get_h5_group(name, group, overwrite=overwrite)
     if view.attrs.setdefault("datatype", view_type) != view_type:
         if not overwrite:
@@ -95,7 +107,7 @@ def _h5_write_view(
         elif not (
             isinstance(link, h5py.ExternalLink)
             and link.path == target
-            and link.filename == external_file
+            and Path(link.filename).resolve() == Path(external_file).resolve()
         ):
             if not overwrite:
                 msg = "existing HDF5 link is different from target. Cannot append"
@@ -108,7 +120,10 @@ def _h5_write_view(
             msg = "external_file must be None for hard links"
             raise ValueError(msg)
         if not isinstance(target, (h5py.Group, h5py.Dataset)):
-            target = utils.get_h5_group(target, lh5_file)
+            if target not in lh5_file:
+                msg = f"cannot create hard link; target {target} does not exist!"
+                raise LH5EncodeError(msg, lh5_file, group, name)
+            target = lh5_file[target]
 
         link = view.get("data", getlink=True)
         if link is None:
@@ -136,6 +151,10 @@ def _h5_write_view(
                 raise LH5EncodeError(msg, lh5_file, group, name)
             del view["data"]
             view["data"] = h5py.SoftLink(target)
+
+    else:
+        msg = f"invalid link type {link_type}"
+        raise LH5EncodeError(msg, lh5_file, group, name)
 
     # write entries
     _h5_write_array(

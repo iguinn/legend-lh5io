@@ -413,7 +413,7 @@ def write_view(
     entries: np.ndarray,
     name: str,
     lh5_file: str | Path | h5py.File,
-    link_type: str = None,
+    link_type: str | None = None,
     external_file: str | Path | None = None,
     group: str | h5py.Group = "/",
     start_row: int = 0,
@@ -445,9 +445,9 @@ def write_view(
     lh5_file
         HDF5 file name or :class:`h5py.File` object.
     link_type
-        Type of link used to reference the target. Can be ``hard`` (default),
-        ``soft`` or ``external``. If ``external``, the `external_file` arg
-        is required.
+        Type of link used to reference the target. Can be ``hard``, ``soft`` or
+        ``external``. If ``external``, the `external_file` arg is required.
+        If ``None`` (default), deduce the correct type from provided target.
     external_file
         External HDF5 file containing target referenced by view. Only used
         if `link_type` is ``external``.
