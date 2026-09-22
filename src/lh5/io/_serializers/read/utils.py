@@ -145,7 +145,7 @@ def read_n_rows(h5o, fname, oname):
             h5d_ent = h5py.h5d.open(h5o, b"entries")
         except KeyError:
             msg = "entries not found"
-            raise LH5DecodeError(msg, fname, oname)
+            raise LH5DecodeError(msg, fname, oname) from None
 
         with closing(h5d_ent):
             shape = h5d_ent.get_space().shape
@@ -162,7 +162,7 @@ def read_n_rows(h5o, fname, oname):
             h5d_ent = h5py.h5d.open(h5o, b"entries")
         except KeyError:
             msg = "entries not found"
-            raise LH5DecodeError(msg, fname, oname)
+            raise LH5DecodeError(msg, fname, oname) from None
 
         with closing(h5d_ent):
             entries, _, _ = ndarray._h5_read_ndarray(
@@ -206,14 +206,12 @@ def read_n_rows(h5o, fname, oname):
     # length of vector of vectors is the length of its cumulative_length
     if lgdotype is types.VectorOfVectors:
         with closing(h5py.h5o.open(h5o, b"cumulative_length")) as obj:
-            n_rows = read_n_rows(obj, fname, "cumulative_length")
-        return n_rows
+            return read_n_rows(obj, fname, "cumulative_length")
 
     # length of vector of encoded vectors is the length of its decoded_size
     if lgdotype in (types.VectorOfEncodedVectors, types.ArrayOfEncodedEqualSizedArrays):
         with closing(h5py.h5o.open(h5o, b"encoded_data")) as obj:
-            n_rows = read_n_rows(obj, fname, "encoded_data")
-        return n_rows
+            return read_n_rows(obj, fname, "encoded_data")
 
     # return array length (without reading the array!)
     if issubclass(lgdotype, types.Array):
