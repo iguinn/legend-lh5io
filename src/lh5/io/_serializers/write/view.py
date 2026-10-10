@@ -29,9 +29,8 @@ def _h5_write_view(
     write_start: int = 0,
     **h5py_kwargs,
 ):
-    if not (
-        isinstance(entries, np.ndarray) and issubclass(entries.dtype.type, np.integer)
-    ):
+    entries = np.asarray(entries)
+    if not issubclass(entries.dtype.type, np.integer):
         msg = "entries must be ints"
         raise TypeError(msg)
 
