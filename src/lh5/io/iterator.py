@@ -1382,7 +1382,7 @@ class LH5Iterator(Iterator):
         processes: Executor | int = None,
         executor: Executor = None,
         executor_mode: Literal["process", "thread"] | None = None,
-        progress: progress.Progress | console.Console | bool = True,
+        progress: Progress | Console | bool = True,
         **hist_kwargs,
     ) -> Hist:
         """
